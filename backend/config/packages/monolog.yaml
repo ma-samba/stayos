@@ -1,0 +1,53 @@
+monolog:
+    channels:
+        - security
+        - business
+        - external
+
+    handlers:
+
+        # ── Dev : tout dans un fichier ────────────────────────────────────────
+        dev_main:
+            type: stream
+            path: '%kernel.logs_dir%/%kernel.environment%.log'
+            level: debug
+            channels: ['!event']
+            when: '@dev'
+
+        # ── Prod : stderr → Heroku log drain → Papertrail ───────────────────
+        prod_stderr:
+            type: stream
+            path: 'php://stderr'
+            level: info
+            formatter: monolog.formatter.json  # Logs structurés JSON
+            channels: ['!event', '!doctrine']
+            when: '@prod'
+
+        # ── Sécurité : fichier dédié ─────────────────────────────────────────
+        security_file:
+            type: stream
+            path: '%kernel.logs_dir%/security.log'
+            level: warning
+            channels: [security]
+
+        # ── Erreurs critiques → Sentry ────────────────────────────────────────
+        sentry:
+            type: sentry
+            level: error
+            hub_id: Sentry\State\HubInterface
+            when: '@prod'
+
+        # ── Erreurs : fichier dédié (dev) ─────────────────────────────────────
+        error_file:
+            type: stream
+            path: '%kernel.logs_dir%/error.log'
+            level: error
+            channels: ['!event']
+            when: '@dev'
+
+        # ── Deprecations (dev uniquement) ─────────────────────────────────────
+        deprecation:
+            type: stream
+            path: '%kernel.logs_dir%/deprecation.log'
+            channels: [deprecation]
+            when: '@dev'

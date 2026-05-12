@@ -1,0 +1,44 @@
+framework:
+    rate_limiter:
+
+        # ── Login — 5 tentatives / minute par IP ──────────────────────────────
+        login:
+            policy: fixed_window
+            limit: 5
+            interval: '1 minute'
+            lock_factory: lock.default.factory
+
+        # ── Register — 3 tentatives / heure par IP ────────────────────────────
+        register:
+            policy: fixed_window
+            limit: 3
+            interval: '1 hour'
+            lock_factory: lock.default.factory
+
+        # ── OTP resend — 3 tentatives / 10 minutes par email ─────────────────
+        otp_resend:
+            policy: fixed_window
+            limit: 3
+            interval: '10 minutes'
+            lock_factory: lock.default.factory
+
+        # ── API globale — 300 GET / minute par IP ────────────────────────────
+        api_read:
+            policy: sliding_window
+            limit: 300
+            interval: '1 minute'
+            lock_factory: lock.default.factory
+
+        # ── API écriture — 60 POST/PUT/PATCH / minute par IP ────────────────
+        api_write:
+            policy: sliding_window
+            limit: 60
+            interval: '1 minute'
+            lock_factory: lock.default.factory
+
+        # ── Webhooks — 100 requêtes / minute par IP ───────────────────────────
+        webhooks:
+            policy: sliding_window
+            limit: 100
+            interval: '1 minute'
+            lock_factory: lock.default.factory

@@ -1,0 +1,26 @@
+nelmio_cors:
+    defaults:
+        origin_regex: true
+        allow_origin:
+            - 'http://localhost:5173'
+            - 'http://localhost:8080'
+            - '%env(FRONTEND_URL)%'
+            # Vercel preview URLs (pattern automatique)
+            - '^https://stayos.*\.vercel\.app$'
+        allow_methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+        allow_headers: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Tenant-Slug']
+        expose_headers: ['Link']
+        max_age: 3600
+    paths:
+        '^/api':
+            allow_origin:
+                - 'http://localhost:5173'
+                - '%env(FRONTEND_URL)%'
+                - '^https://stayos.*\.vercel\.app$'
+            allow_headers: ['Content-Type', 'Authorization', 'X-Tenant-Slug']
+            allow_methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+            max_age: 3600
+        '^/superadmin':
+            allow_origin: ['%env(SUPERADMIN_URL)%']
+            allow_methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+            allow_headers: ['Content-Type', 'Authorization']

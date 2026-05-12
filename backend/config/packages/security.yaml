@@ -1,0 +1,78 @@
+security:
+    password_hashers:
+        App\Platform\User\Domain\Entity\User:
+            algorithm: auto
+        App\Hotel\Auth\Domain\Entity\StaffUser:
+            algorithm: auto
+
+    providers:
+        # Super admin plateforme (schema public)
+        platform_user_provider:
+            entity:
+                class: App\Platform\User\Domain\Entity\User
+                property: email
+
+        # Staff hôtel (schema hotel_{uuid} — chargé dynamiquement par le TenantUserProvider)
+        staff_user_provider:
+            id: App\Platform\Tenant\Infrastructure\Security\TenantUserProvider
+
+    firewalls:
+        dev:
+            pattern: ^/(_(profiler|wdt)|css|images|js)/
+            security: false
+
+        # ── Routes publiques ──────────────────────────────────────────────────
+        health:
+            pattern: ^/api/health$
+            security: false
+
+        onboarding_register:
+            pattern: ^/api/onboarding/register$
+            security: false
+
+        # ── Auth hôtel (login staff) ──────────────────────────────────────────
+        login:
+            pattern: ^/api/auth/login$
+            stateless: true
+            json_login:
+                check_path: /api/auth/login
+                username_path: email
+                password_path: password
+                success_handler: lexik_jwt_authentication.handler.authentication_success
+                failure_handler: lexik_jwt_authentication.handler.authentication_failure
+            provider: staff_user_provider
+
+        refresh:
+            pattern: ^/api/auth/refresh$
+            stateless: true
+
+        # ── Super Admin (IP restreinte en prod) ───────────────────────────────
+        superadmin:
+            pattern: ^/superadmin
+            stateless: true
+            jwt: ~
+            provider: platform_user_provider
+
+        # ── API hôtel ─────────────────────────────────────────────────────────
+        api:
+            pattern: ^/api
+            stateless: true
+            jwt: ~
+            provider: staff_user_provider
+
+    access_control:
+        - { path: ^/api/health,              roles: PUBLIC_ACCESS }
+        - { path: ^/api/auth/login,          roles: PUBLIC_ACCESS }
+        - { path: ^/api/auth/refresh,        roles: PUBLIC_ACCESS }
+        - { path: ^/api/onboarding/register, roles: PUBLIC_ACCESS, methods: [POST] }
+        - { path: ^/superadmin,              roles: ROLE_SUPER_ADMIN }
+        - { path: ^/api/settings,            roles: ROLE_MANAGER }
+        - { path: ^/api/reports,             roles: ROLE_MANAGER }
+        - { path: ^/api,                     roles: IS_AUTHENTICATED_FULLY }
+
+    role_hierarchy:
+        ROLE_SUPER_ADMIN: [ROLE_ADMIN]
+        ROLE_MANAGER:     [ROLE_RECEPTIONIST]
+        ROLE_RECEPTIONIST: [ROLE_HOUSEKEEPER]
+        ROLE_HOUSEKEEPER: [ROLE_USER]
+        ROLE_ACCOUNTANT:  [ROLE_USER]

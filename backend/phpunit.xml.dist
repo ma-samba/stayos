@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         stopOnFailure="false">
+
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Functional">
+            <directory>tests/Functional</directory>
+        </testsuite>
+        <testsuite name="Security">
+            <directory>tests/Functional/Security</directory>
+        </testsuite>
+    </testsuites>
+
+    <php>
+        <ini name="error_reporting" value="-1" />
+        <server name="APP_ENV" value="test" force="true" />
+        <server name="APP_DEBUG" value="0" force="true" />
+        <server name="KERNEL_CLASS" value="App\Kernel" />
+        <!-- BDD de test séparée du dev -->
+        <env name="DATABASE_URL"
+             value="postgresql://stayos_user:stayos_password@db:5432/stayos_test?serverVersion=16"
+             force="true" />
+        <!-- Désactiver les emails en test -->
+        <env name="MAILER_DSN" value="null://null" force="true" />
+        <!-- Paydunya en mode test -->
+        <env name="PAYDUNYA_MODE" value="test" force="true" />
+    </php>
+
+    <coverage>
+        <include>
+            <directory suffix=".php">src</directory>
+        </include>
+        <exclude>
+            <directory>src/DataFixtures</directory>
+            <directory>src/Migrations</directory>
+        </exclude>
+        <report>
+            <html outputDirectory="var/coverage" lowUpperBound="50" highLowerBound="90" />
+            <text outputFile="php://stdout" showOnlySummary="true" />
+        </report>
+    </coverage>
+
+    <groups>
+        <exclude>
+            <group>slow</group>
+        </exclude>
+    </groups>
+
+</phpunit>
