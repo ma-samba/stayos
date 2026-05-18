@@ -11,9 +11,14 @@ RUN apk add --no-cache \
     oniguruma-dev \
     libxml2-dev \
     linux-headers \
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
     $PHPIZE_DEPS
 
 # ── Extensions PHP ───────────────────────────────────────────────────────────
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg
+
 RUN docker-php-ext-install \
     pdo \
     pdo_pgsql \
@@ -24,7 +29,8 @@ RUN docker-php-ext-install \
     bcmath \
     xml \
     mbstring \
-    sysvsem
+    sysvsem \
+    gd
 
 # Redis via PECL
 RUN pecl install redis && docker-php-ext-enable redis
@@ -33,6 +39,8 @@ RUN pecl install redis && docker-php-ext-enable redis
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 # ── Répertoire de travail ─────────────────────────────────────────────────────
+COPY docker/php/fpm-pool.conf /usr/local/etc/php-fpm.d/www.conf
+
 WORKDIR /var/www/backend
 
 # ── Permissions ───────────────────────────────────────────────────────────────

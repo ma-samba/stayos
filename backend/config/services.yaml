@@ -27,6 +27,10 @@ services:
                 event: lexik_jwt_authentication.on_jwt_created,
                 method: onJWTCreated }
 
+    App\DataFixtures\Purger\TenantAwarePurgerFactory:
+        tags:
+            - { name: doctrine.fixtures.purger_factory, alias: tenant_aware }
+
     # Service Redis injecté dans HealthController
     Redis:
         class: Redis

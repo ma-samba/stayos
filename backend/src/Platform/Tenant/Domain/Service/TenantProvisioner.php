@@ -4,10 +4,11 @@ namespace App\Platform\Tenant\Domain\Service;
 
 use App\Platform\Tenant\Domain\Entity\Tenant;
 use Doctrine\DBAL\Connection;
+use DoctrineMigrations\Tenant\Version20260514000000CreateHotelTables;
 use Psr\Log\LoggerInterface;
 
 /**
- * Crée le schema PostgreSQL hotel_{uuid} et initialise les tables de base.
+ * Crée le schema PostgreSQL hotel_{uuid} et initialise toutes les tables métier.
  */
 class TenantProvisioner
 {
@@ -20,6 +21,7 @@ class TenantProvisioner
      * Provisionne le schema d'un tenant :
      * 1. Crée le schema hotel_{uuid}
      * 2. Crée la table staff_users (nécessaire dès l'onboarding)
+     * 3. Applique la migration tenant (toutes les tables métier)
      */
     public function provision(Tenant $tenant): void
     {
@@ -33,8 +35,7 @@ class TenantProvisioner
             sprintf('CREATE SCHEMA IF NOT EXISTS %s', $schemaName)
         );
 
-        // Table staff_users — nécessaire pour l'onboarding du Manager
-        // Les autres tables métier sont créées via les migrations tenant (Sprint 3)
+        // Table staff_users — nécessaire pour l'onboarding du Manager (avant applyTenantMigration)
         $this->connection->executeStatement(sprintf('
             CREATE TABLE IF NOT EXISTS %s.staff_users (
                 id            UUID         NOT NULL,
@@ -59,9 +60,32 @@ class TenantProvisioner
             $schemaName
         ));
 
-        $this->logger->info('Schema hotel_{uuid} créé pour tenant {slug}', [
+        $this->applyTenantMigration($schemaName);
+
+        $this->logger->info('Schema hotel_{uuid} provisionné pour tenant {slug}', [
             'schema' => $schemaName,
             'slug'   => $tenant->getSlug(),
         ]);
+    }
+
+    /**
+     * Applique toutes les instructions DDL de la migration tenant dans le schema donné.
+     * Utilise SET search_path pour que les tables soient créées dans le bon schema.
+     */
+    private function applyTenantMigration(string $schemaName): void
+    {
+        $migration = new Version20260514000000CreateHotelTables();
+
+        try {
+            $this->connection->executeStatement(
+                sprintf('SET search_path TO %s, public', $schemaName)
+            );
+
+            foreach ($migration->getStatements() as $sql) {
+                $this->connection->executeStatement($sql);
+            }
+        } finally {
+            $this->connection->executeStatement('SET search_path TO public');
+        }
     }
 }

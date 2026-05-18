@@ -43,7 +43,9 @@ install: ## 🚀 Installation complète du projet (1ère fois)
 	docker compose exec php php bin/console doctrine:database:create --if-not-exists
 	docker compose exec php php bin/console doctrine:migrations:migrate --no-interaction
 	@echo "$(GREEN)▶ Fixtures...$(RESET)"
-	docker compose exec php php bin/console doctrine:fixtures:load --no-interaction
+	docker compose exec php php bin/console doctrine:fixtures:load \
+		--no-interaction \
+		--purger=tenant_aware
 	@echo "$(GREEN)▶ BDD de test...$(RESET)"
 	$(MAKE) test-setup
 	@echo "$(GREEN)▶ npm install...$(RESET)"
@@ -139,13 +141,17 @@ migrate-tenant-all: ## 🗄 Appliquer migrations sur tous les schemas tenant
 	docker compose exec php php bin/console stayos:migrations:migrate-all-tenants
 
 fixtures: ## 🌱 Recharger les fixtures
-	docker compose exec php php bin/console doctrine:fixtures:load --no-interaction
+	docker compose exec php php bin/console doctrine:fixtures:load \
+		--no-interaction \
+		--purger=tenant_aware
 
 db-reset: ## ⚠️  Reset complet BDD (drop + create + migrate + fixtures)
 	docker compose exec php php bin/console doctrine:database:drop --force --if-exists
 	docker compose exec php php bin/console doctrine:database:create
 	docker compose exec php php bin/console doctrine:migrations:migrate --no-interaction
-	docker compose exec php php bin/console doctrine:fixtures:load --no-interaction
+	docker compose exec php php bin/console doctrine:fixtures:load \
+		--no-interaction \
+		--purger=tenant_aware
 
 validate-schema: ## ✅ Valider le schéma Doctrine
 	docker compose exec php php bin/console doctrine:schema:validate
