@@ -15,6 +15,11 @@ framework:
     router:
         utf8: true
 
+    translator:
+        default_path: '%kernel.project_dir%/translations'
+        fallbacks:
+            - fr
+
 when@dev:
     framework:
         profiler:

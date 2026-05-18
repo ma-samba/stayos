@@ -1,4 +1,4 @@
-FROM php:8.3-fpm-alpine
+FROM php:8.4-fpm-alpine
 
 # ── Dépendances système ──────────────────────────────────────────────────────
 RUN apk add --no-cache \
@@ -10,7 +10,6 @@ RUN apk add --no-cache \
     icu-dev \
     oniguruma-dev \
     libxml2-dev \
-    wkhtmltopdf \
     linux-headers \
     $PHPIZE_DEPS
 

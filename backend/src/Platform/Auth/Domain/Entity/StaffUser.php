@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Platform\User\Domain\Entity;
+namespace App\Platform\Auth\Domain\Entity;
 
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
@@ -8,10 +8,14 @@ use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Uid\Uuid;
 
+/**
+ * Membre du staff d'un hôtel (schema hotel_{uuid} — pas d'annotation schema).
+ * Roles : MANAGER | RECEPTIONIST | HOUSEKEEPER | ACCOUNTANT
+ */
 #[ORM\Entity]
-#[ORM\Table(name: 'users', schema: 'public')]
+#[ORM\Table(name: 'staff_users')]
 #[ORM\HasLifecycleCallbacks]
-class User implements UserInterface, PasswordAuthenticatedUserInterface
+class StaffUser implements UserInterface, PasswordAuthenticatedUserInterface
 {
     #[ORM\Id]
     #[ORM\Column(type: UuidType::NAME, unique: true)]
@@ -22,17 +26,26 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(length: 180, unique: true)]
     private string $email;
 
-    #[ORM\Column(type: 'json')]
-    private array $roles = [];
-
     #[ORM\Column]
     private string $password;
 
-    #[ORM\Column(length: 255)]
-    private string $name;
+    #[ORM\Column(length: 100)]
+    private string $firstName;
+
+    #[ORM\Column(length: 100)]
+    private string $lastName;
+
+    #[ORM\Column(length: 20, options: ['default' => 'RECEPTIONIST'])]
+    private string $role = 'RECEPTIONIST';
+
+    #[ORM\Column(length: 20, nullable: true)]
+    private ?string $phone = null;
 
     #[ORM\Column(options: ['default' => true])]
     private bool $active = true;
+
+    #[ORM\Column(length: 5, options: ['default' => 'fr'])]
+    private string $locale = 'fr';
 
     #[ORM\Column(nullable: true)]
     private ?\DateTimeImmutable $lastLoginAt = null;
@@ -80,17 +93,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
 
     public function getRoles(): array
     {
-        $roles   = $this->roles;
-        $roles[] = 'ROLE_USER';
-
-        return array_unique($roles);
-    }
-
-    public function setRoles(array $roles): self
-    {
-        $this->roles = $roles;
-
-        return $this;
+        return ['ROLE_' . $this->role, 'ROLE_USER'];
     }
 
     public function getPassword(): string
@@ -105,14 +108,50 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
-    public function getName(): string
+    public function getFirstName(): string
     {
-        return $this->name;
+        return $this->firstName;
     }
 
-    public function setName(string $name): self
+    public function setFirstName(string $firstName): self
     {
-        $this->name = $name;
+        $this->firstName = $firstName;
+
+        return $this;
+    }
+
+    public function getLastName(): string
+    {
+        return $this->lastName;
+    }
+
+    public function setLastName(string $lastName): self
+    {
+        $this->lastName = $lastName;
+
+        return $this;
+    }
+
+    public function getRole(): string
+    {
+        return $this->role;
+    }
+
+    public function setRole(string $role): self
+    {
+        $this->role = $role;
+
+        return $this;
+    }
+
+    public function getPhone(): ?string
+    {
+        return $this->phone;
+    }
+
+    public function setPhone(?string $phone): self
+    {
+        $this->phone = $phone;
 
         return $this;
     }
@@ -129,14 +168,26 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
+    public function getLocale(): string
+    {
+        return $this->locale;
+    }
+
+    public function setLocale(string $locale): self
+    {
+        $this->locale = $locale;
+
+        return $this;
+    }
+
     public function getLastLoginAt(): ?\DateTimeImmutable
     {
         return $this->lastLoginAt;
     }
 
-    public function setLastLoginAt(?\DateTimeImmutable $lastLoginAt): self
+    public function setLastLoginAt(?\DateTimeImmutable $dt): self
     {
-        $this->lastLoginAt = $lastLoginAt;
+        $this->lastLoginAt = $dt;
 
         return $this;
     }
@@ -149,6 +200,11 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function getUpdatedAt(): \DateTimeImmutable
     {
         return $this->updatedAt;
+    }
+
+    public function getFullName(): string
+    {
+        return $this->firstName . ' ' . $this->lastName;
     }
 
     public function eraseCredentials(): void {}

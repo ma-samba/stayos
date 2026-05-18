@@ -20,6 +20,13 @@ services:
         tags:
             - { name: kernel.event_subscriber }
 
+    # JWTCreatedListener — enrichit les tokens avec les claims métier
+    App\Platform\Auth\Infrastructure\Security\JWTCreatedListener:
+        tags:
+            - { name: kernel.event_listener,
+                event: lexik_jwt_authentication.on_jwt_created,
+                method: onJWTCreated }
+
     # Service Redis injecté dans HealthController
     Redis:
         class: Redis
