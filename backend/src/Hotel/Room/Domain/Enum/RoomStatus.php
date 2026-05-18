@@ -9,4 +9,10 @@ enum RoomStatus: string
     case CLEANING     = 'cleaning';
     case MAINTENANCE  = 'maintenance';
     case OUT_OF_ORDER = 'out_of_order';
+
+    /** @return string[] */
+    public static function values(): array
+    {
+        return array_map(fn($case) => $case->value, self::cases());
+    }
 }

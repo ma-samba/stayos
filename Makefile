@@ -192,9 +192,12 @@ cache: ## 🗑 Vider le cache Symfony
 # ════════════════════════════════════════════════════════════════════════════
 
 test-setup: ## 🔧 Créer et préparer la BDD de test
-	docker compose exec php php bin/console doctrine:database:create --env=test --if-not-exists
-	docker compose exec php php bin/console doctrine:migrations:migrate --env=test --no-interaction
+	docker compose exec db psql -U stayos_user -d stayos_db -tc "SELECT 1 FROM pg_database WHERE datname='stayos_test'" | grep -q 1 || docker compose exec db psql -U stayos_user -d stayos_db -c "CREATE DATABASE stayos_test"
+	docker compose exec -e DATABASE_URL="postgresql://stayos_user:stayos_password@db:5432/stayos_test?serverVersion=16&charset=utf8" php php bin/console doctrine:migrations:migrate --env=test --no-interaction
 	@echo "$(GREEN)✅ BDD de test prête$(RESET)"
+
+test-integration: ## 🧪 Tests d'intégration (nécessitent make fixtures)
+	docker compose exec php php bin/phpunit --group integration
 
 test: ## 🧪 Lancer tous les tests
 	docker compose exec php php bin/phpunit

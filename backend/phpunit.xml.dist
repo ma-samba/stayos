@@ -20,6 +20,7 @@
     <php>
         <ini name="error_reporting" value="-1" />
         <server name="APP_ENV" value="test" force="true" />
+        <env name="APP_ENV" value="test" force="true" />
         <server name="APP_DEBUG" value="0" force="true" />
         <server name="KERNEL_CLASS" value="App\Kernel" />
         <!-- BDD de test séparée du dev -->
@@ -30,9 +31,32 @@
         <env name="MAILER_DSN" value="null://null" force="true" />
         <!-- Paydunya en mode test -->
         <env name="PAYDUNYA_MODE" value="test" force="true" />
+        <!-- Mercure — valeurs de test -->
+        <env name="MERCURE_URL" value="http://mercure:9090/.well-known/mercure" force="true" />
+        <env name="MERCURE_PUBLIC_URL" value="http://localhost:9090/.well-known/mercure" force="true" />
+        <env name="MERCURE_JWT_SECRET" value="stayos_mercure_test_secret" force="true" />
+        <!-- Messenger transport -->
+        <env name="MESSENGER_TRANSPORT_DSN" value="redis://redis:6379/messages_test" force="true" />
+        <!-- URLs -->
+        <env name="FRONTEND_URL" value="http://localhost:5173" force="true" />
+        <env name="SUPERADMIN_URL" value="http://superadmin.localhost:8080" force="true" />
+        <!-- App -->
+        <env name="APP_DOMAIN" value="stayos.localhost" force="true" />
+        <env name="APP_VERSION" value="test" force="true" />
+        <!-- Paydunya sandbox keys -->
+        <env name="PAYDUNYA_MASTER_KEY" value="test_master_key" force="true" />
+        <env name="PAYDUNYA_PRIVATE_KEY" value="test_private_key" force="true" />
+        <env name="PAYDUNYA_TOKEN" value="test_token" force="true" />
+        <!-- Redis + Lock -->
+        <env name="REDIS_URL" value="redis://redis:6379" force="true" />
+        <env name="REDIS_HOST" value="redis" force="true" />
+        <env name="REDIS_PORT" value="6379" force="true" />
+        <env name="LOCK_DSN" value="flock" force="true" />
+        <!-- Mail -->
+        <env name="MAILER_FROM" value="noreply@stayos.sn" force="true" />
 
         <!-- ###+ symfony/framework-bundle ### -->
-        <env name="APP_ENV" value="dev"/>
+        <!-- APP_ENV forcé à "test" via <server> ci-dessus -->
         <env name="APP_SECRET" value="86468ed02105e82a42f0cb2f24272289"/>
         <!-- ###- symfony/framework-bundle ### -->
 
@@ -80,6 +104,8 @@
     <groups>
         <exclude>
             <group>slow</group>
+            <!-- Les tests @group integration nécessitent make fixtures -->
+            <group>integration</group>
         </exclude>
     </groups>
 

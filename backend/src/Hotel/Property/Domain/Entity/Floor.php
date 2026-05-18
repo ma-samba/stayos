@@ -4,6 +4,7 @@ namespace App\Hotel\Property\Domain\Entity;
 
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
+use Symfony\Component\Serializer\Attribute\Groups;
 use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity]
@@ -14,12 +15,15 @@ class Floor
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
+    #[Groups(['room:read'])]
     private Uuid $id;
 
     #[ORM\Column]
+    #[Groups(['room:read'])]
     private int $number;
 
     #[ORM\Column(length: 100, nullable: true)]
+    #[Groups(['room:read'])]
     private ?string $name = null;
 
     #[ORM\Column(options: ['default' => true])]

@@ -6,6 +6,7 @@ use App\Hotel\Property\Domain\Entity\Floor;
 use App\Hotel\Room\Domain\Enum\RoomStatus;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
+use Symfony\Component\Serializer\Attribute\Groups;
 use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity]
@@ -17,29 +18,37 @@ class Room
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
+    #[Groups(['room:read'])]
     private Uuid $id;
 
     #[ORM\ManyToOne(targetEntity: Floor::class)]
     #[ORM\JoinColumn(nullable: true)]
+    #[Groups(['room:read'])]
     private ?Floor $floor = null;
 
     #[ORM\ManyToOne(targetEntity: RoomType::class)]
     #[ORM\JoinColumn(nullable: false)]
+    #[Groups(['room:read'])]
     private RoomType $type;
 
     #[ORM\Column(length: 20, unique: true)]
+    #[Groups(['room:read'])]
     private string $number;
 
     #[ORM\Column(length: 20, options: ['default' => 'available'])]
+    #[Groups(['room:read'])]
     private string $status = RoomStatus::AVAILABLE->value;
 
     #[ORM\Column(type: 'text', nullable: true)]
+    #[Groups(['room:read'])]
     private ?string $notes = null;
 
     #[ORM\Column(options: ['default' => true])]
+    #[Groups(['room:read'])]
     private bool $isActive = true;
 
     #[ORM\Column]
+    #[Groups(['room:detail'])]
     private \DateTimeImmutable $createdAt;
 
     public function __construct()

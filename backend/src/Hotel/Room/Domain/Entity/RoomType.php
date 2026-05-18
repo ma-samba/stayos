@@ -4,6 +4,7 @@ namespace App\Hotel\Room\Domain\Entity;
 
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
+use Symfony\Component\Serializer\Attribute\Groups;
 use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity]
@@ -14,18 +15,22 @@ class RoomType
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
+    #[Groups(['room:read'])]
     private Uuid $id;
 
     #[ORM\Column(length: 100)]
+    #[Groups(['room:read'])]
     private string $name;
 
     #[ORM\Column(type: 'text', nullable: true)]
     private ?string $description = null;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2)]
+    #[Groups(['room:read'])]
     private string $baseRateXof;
 
     #[ORM\Column(options: ['default' => 2])]
+    #[Groups(['room:read'])]
     private int $maxOccupancy = 2;
 
     #[ORM\Column(type: 'json', nullable: true)]

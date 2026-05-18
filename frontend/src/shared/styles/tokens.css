@@ -1,0 +1,233 @@
+/* ──────────────────────────────────────────────────────────────
+   StayOS PMS — Design Tokens
+   Source : pms-design-system.html
+   Importer dans main.ts : import '@/shared/styles/tokens.css'
+   ────────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ── Couleurs principales ── */
+  --pms-ink:         #1A1714;
+  --pms-ink-2:       #3D3830;
+  --pms-ink-3:       #6B6459;
+  --pms-sand:        #F5F0E8;
+  --pms-sand-2:      #EDE7D9;
+
+  /* ── Accent ── */
+  --pms-gold:        #C4922A;
+  --pms-gold-light:  #F5E6C8;
+  --pms-gold-dark:   #8A6319;
+
+  /* ── Sémantiques ── */
+  --pms-teal:        #1D6E6E;
+  --pms-teal-light:  #D4EDED;
+  --pms-teal-dark:   #0D4444;
+  --pms-green:       #2E7D4F;
+  --pms-green-light: #D4EDE0;
+  --pms-red:         #B83232;
+  --pms-red-light:   #F5DADA;
+  --pms-blue:        #2B5BA8;
+  --pms-blue-light:  #D4E2F5;
+
+  /* ── Bordures ── */
+  --pms-border:      rgba(26, 23, 20, 0.10);
+  --pms-border-2:    rgba(26, 23, 20, 0.18);
+
+  /* ── Typographie ── */
+  --font:            'DM Sans', system-ui, sans-serif;
+  --mono:            'DM Mono', 'Courier New', monospace;
+
+  /* ── Border radius ── */
+  --radius-sm:       6px;
+  --radius-md:       10px;
+  --radius-lg:       16px;
+  --radius-xl:       24px;
+}
+
+/* ── Reset minimal ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--pms-ink-2);
+  background: var(--pms-sand);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Utilitaires typographiques ── */
+.t-mono   { font-family: var(--mono); font-size: 12px; color: var(--pms-teal); }
+.t-label  { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--pms-ink-3); }
+.t-muted  { color: var(--pms-ink-3); font-size: 12px; }
+
+/* ── Boutons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: var(--radius-md);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s, background 0.15s;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn:hover    { opacity: 0.88; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-sm  { height: 30px; padding: 0 12px; font-size: 12px; }
+.btn-lg  { height: 46px; padding: 0 24px; font-size: 14px; }
+.btn-icon    { width: 38px; padding: 0; justify-content: center; }
+.btn-icon-sm { width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; cursor: pointer; border-radius: var(--radius-sm); background: transparent; color: var(--pms-ink-3); }
+.btn-icon-sm:hover { background: var(--pms-sand-2); color: var(--pms-ink); }
+
+.btn-primary   { background: var(--pms-ink);       color: #fff; }
+.btn-secondary { background: transparent; color: var(--pms-ink); border: 0.5px solid var(--pms-border-2); }
+.btn-gold      { background: var(--pms-gold);       color: #fff; }
+.btn-ghost     { background: transparent; color: var(--pms-ink-3); }
+.btn-danger    { background: var(--pms-red-light);  color: var(--pms-red); border: 0.5px solid rgba(184,50,50,0.2); }
+
+/* ── Badges ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.badge-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+.badge-available   { background: var(--pms-green-light); color: var(--pms-green); }
+.badge-occupied    { background: var(--pms-red-light);   color: var(--pms-red); }
+.badge-cleaning    { background: var(--pms-gold-light);  color: var(--pms-gold-dark); }
+.badge-maintenance { background: var(--pms-blue-light);  color: var(--pms-blue); }
+.badge-out_of_order { background: var(--pms-red-light);  color: var(--pms-red); }
+
+/* ── Cards ── */
+.card      { background: #fff; border: 0.5px solid var(--pms-border); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; }
+.card-sand { background: var(--pms-sand); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; }
+
+/* ── Stat cards ── */
+.stat-card  { background: #fff; border: 0.5px solid var(--pms-border); border-radius: var(--radius-md); padding: 1.1rem 1.25rem; }
+.stat-label { font-size: 11px; color: var(--pms-ink-3); font-weight: 500; letter-spacing: 0.04em; margin-bottom: 8px; }
+.stat-value { font-size: 26px; font-weight: 500; color: var(--pms-ink); }
+.stat-delta { font-size: 12px; display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.delta-up   { color: var(--pms-green); }
+.delta-down { color: var(--pms-red); }
+
+/* ── Room cards ── */
+.room-card {
+  border: 0.5px solid var(--pms-border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+.room-card:hover { box-shadow: 0 2px 12px rgba(26,23,20,0.08); }
+.room-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+.room-card.available::before    { background: var(--pms-green); }
+.room-card.occupied::before     { background: var(--pms-red); }
+.room-card.cleaning::before     { background: var(--pms-gold); }
+.room-card.maintenance::before  { background: var(--pms-blue); }
+.room-card.out_of_order::before { background: var(--pms-red); }
+
+/* ── Inputs ── */
+.input {
+  height: 38px;
+  padding: 0 14px;
+  border: 0.5px solid var(--pms-border-2);
+  border-radius: var(--radius-md);
+  font-family: var(--font);
+  font-size: 13px;
+  background: #fff;
+  color: var(--pms-ink);
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input:focus { outline: none; border-color: var(--pms-ink); box-shadow: 0 0 0 3px rgba(26,23,20,0.06); }
+.input-error  { border-color: var(--pms-red); }
+.input-wrap   { display: flex; flex-direction: column; gap: 6px; }
+.input-label  { font-size: 11px; font-weight: 500; color: var(--pms-ink-3); letter-spacing: 0.04em; }
+.input-hint   { font-size: 11px; color: var(--pms-ink-3); }
+.input-hint.error { color: var(--pms-red); }
+
+.select {
+  height: 38px;
+  padding: 0 14px;
+  border: 0.5px solid var(--pms-border-2);
+  border-radius: var(--radius-md);
+  font-family: var(--font);
+  font-size: 13px;
+  background: #fff;
+  color: var(--pms-ink);
+  width: 100%;
+  cursor: pointer;
+}
+
+/* ── Table ── */
+.table-wrap { border: 0.5px solid var(--pms-border); border-radius: var(--radius-lg); overflow: hidden; }
+table       { width: 100%; border-collapse: collapse; }
+thead tr    { background: var(--pms-sand); }
+th          { font-size: 11px; font-weight: 500; color: var(--pms-ink-3); text-align: left; padding: 11px 16px; letter-spacing: 0.04em; }
+td          { font-size: 13px; color: var(--pms-ink-2); padding: 11px 16px; border-top: 0.5px solid var(--pms-border); }
+tr:hover td { background: #faf9f7; }
+
+/* ── Loading spinner ── */
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--pms-border-2);
+  border-top-color: var(--pms-ink);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Empty state ── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 3rem 1.5rem;
+  color: var(--pms-ink-3);
+  text-align: center;
+}
+.empty-state i { font-size: 40px; opacity: 0.4; }
+
+/* ── Toasts ── */
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+}
+.toast-success { background: var(--pms-green-light); color: var(--pms-green); }
+.toast-error   { background: var(--pms-red-light);   color: var(--pms-red); }
+.toast-warning { background: var(--pms-gold-light);  color: var(--pms-gold-dark); }
+.toast-info    { background: var(--pms-blue-light);  color: var(--pms-blue); }
