@@ -1,0 +1,29 @@
+parameters:
+
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/DependencyInjection/'
+            - '../src/Kernel.php'
+
+    # TenantContext : singleton partagé pour toute la durée d'une requête
+    App\Shared\TenantContext:
+        shared: true
+
+    # TenantMiddleware : abonné aux événements kernel
+    App\Platform\Tenant\Infrastructure\Middleware\TenantMiddleware:
+        tags:
+            - { name: kernel.event_subscriber }
+
+    # Service Redis injecté dans HealthController
+    Redis:
+        class: Redis
+        calls:
+            - connect:
+                - '%env(resolve:REDIS_HOST)%'
+                - '%env(int:REDIS_PORT)%'

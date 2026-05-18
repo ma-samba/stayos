@@ -1,0 +1,6 @@
+doctrine_migrations:
+    migrations_paths:
+        'DoctrineMigrations': '%kernel.project_dir%/migrations/global'
+    enable_profiler: false
+    transactional: false
+    check_database_platform: false
