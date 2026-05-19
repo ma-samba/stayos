@@ -13,14 +13,15 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
- * Résout le tenant depuis le subdomain et configure le search_path PostgreSQL.
+ * Résout le tenant et configure le search_path PostgreSQL.
  *
- * Flux : Host: savana.localhost
- *   → slug = "savana"
- *   → Tenant chargé depuis public.tenants
- *   → SET search_path TO hotel_{uuid}, public
+ * Priorité 1 : header X-Tenant-Slug (dev local, frontend Vue.js)
+ * Priorité 2 : subdomain (production : savana.stayos.sn → slug "savana")
  *
- * Priority 20 : s'exécute avant le firewall Symfony (priority 8).
+ * → Tenant chargé depuis public.tenants
+ * → SET search_path TO hotel_{uuid}, public
+ *
+ * Priority 100 : s'exécute avant le firewall Symfony (priority ~8).
  */
 class TenantMiddleware implements EventSubscriberInterface
 {
@@ -41,13 +42,19 @@ class TenantMiddleware implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            KernelEvents::REQUEST => ['onKernelRequest', 20],
+            KernelEvents::REQUEST => ['onKernelRequest', 100],
         ];
     }
 
     public function onKernelRequest(RequestEvent $event): void
     {
         if (!$event->isMainRequest()) {
+            return;
+        }
+
+        // Si le TenantContext est déjà défini (par JWTDecodedListener),
+        // pas besoin de le redéfinir
+        if ($this->tenantContext->has()) {
             return;
         }
 
@@ -61,16 +68,21 @@ class TenantMiddleware implements EventSubscriberInterface
             }
         }
 
-        // Extraire le slug depuis le subdomain : "savana.localhost" → "savana"
-        $host  = $request->getHost();
-        $parts = explode('.', $host);
+        // Priorité 1 : header X-Tenant-Slug (dev local, frontend Vue.js)
+        // Priorité 2 : subdomain (production : savana.stayos.sn)
+        $slug = $request->headers->get('X-Tenant-Slug');
 
-        // Pas de subdomain (ex: localhost seul) → pas de résolution
-        if (\count($parts) < 2) {
-            return;
+        if (!$slug) {
+            $host  = $request->getHost();
+            $parts = explode('.', $host);
+
+            // Pas de subdomain (ex: localhost seul) → pas de résolution
+            if (\count($parts) < 2) {
+                return;
+            }
+
+            $slug = $parts[0];
         }
-
-        $slug   = $parts[0];
         $tenant = $this->tenantRepository->findBySlug($slug);
 
         if (null === $tenant) {

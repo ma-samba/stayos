@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 
 interface JwtClaims {
   sub: string
+  slug: string
   tenant: string
   role: string
   plan: string
@@ -33,6 +34,11 @@ export const useAuthStore = defineStore('auth', () => {
 
     localStorage.setItem('token', newToken)
     localStorage.setItem('refresh_token', newRefresh)
+
+    // Persister le slug tenant pour le header X-Tenant-Slug
+    if (claims.value?.slug) {
+      localStorage.setItem('tenant_slug', claims.value.slug)
+    }
   }
 
   function logout(): void {
@@ -42,6 +48,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     localStorage.removeItem('token')
     localStorage.removeItem('refresh_token')
+    localStorage.removeItem('tenant_slug')
   }
 
   function hasFeature(feature: string): boolean {

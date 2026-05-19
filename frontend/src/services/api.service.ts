@@ -22,6 +22,12 @@ api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+
+    // Envoyer le slug tenant pour le TenantMiddleware (dev local sans subdomain)
+    const tenantSlug = localStorage.getItem('tenant_slug')
+    if (tenantSlug) {
+      config.headers['X-Tenant-Slug'] = tenantSlug
+    }
   }
   return config
 })

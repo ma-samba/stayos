@@ -105,7 +105,12 @@ class RoomController extends AbstractApiController
             foreach ($errors as $error) {
                 $messages[$error->getPropertyPath()] = $error->getMessage();
             }
-            return $this->jsonError('Données invalides', 'VALIDATION_ERROR', 422);
+            return $this->json([
+                'error'  => 'Données invalides',
+                'code'   => 'VALIDATION_ERROR',
+                'status' => 422,
+                'errors' => $messages,
+            ], 422);
         }
 
         $newStatus = RoomStatus::from($dto->status);

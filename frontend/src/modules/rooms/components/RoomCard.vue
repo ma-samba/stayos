@@ -61,7 +61,7 @@ const nextStatusLabels: Record<RoomStatus, string> = {
         </div>
       </div>
       <span :class="['badge', `badge-${room.status}`]">
-        <span class="badge-dot" :style="`background: currentColor`"></span>
+        <span class="badge-dot"></span>
         {{ label }}
       </span>
     </div>
