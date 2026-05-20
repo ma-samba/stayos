@@ -4,7 +4,6 @@ namespace App\Platform\Tenant\Domain\Service;
 
 use App\Platform\Tenant\Domain\Entity\Tenant;
 use Doctrine\DBAL\Connection;
-use DoctrineMigrations\Tenant\Version20260514000000CreateHotelTables;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -14,6 +13,7 @@ class TenantProvisioner
 {
     public function __construct(
         private readonly Connection      $connection,
+        private readonly TenantMigrator  $tenantMigrator,
         private readonly LoggerInterface $logger,
     ) {}
 
@@ -60,32 +60,12 @@ class TenantProvisioner
             $schemaName
         ));
 
-        $this->applyTenantMigration($schemaName);
+        $applied = $this->tenantMigrator->migrate($schemaName);
 
         $this->logger->info('Schema hotel_{uuid} provisionné pour tenant {slug}', [
-            'schema' => $schemaName,
-            'slug'   => $tenant->getSlug(),
+            'schema'             => $schemaName,
+            'slug'               => $tenant->getSlug(),
+            'migrations_applied' => count($applied),
         ]);
-    }
-
-    /**
-     * Applique toutes les instructions DDL de la migration tenant dans le schema donné.
-     * Utilise SET search_path pour que les tables soient créées dans le bon schema.
-     */
-    private function applyTenantMigration(string $schemaName): void
-    {
-        $migration = new Version20260514000000CreateHotelTables();
-
-        try {
-            $this->connection->executeStatement(
-                sprintf('SET search_path TO %s, public', $schemaName)
-            );
-
-            foreach ($migration->getStatements() as $sql) {
-                $this->connection->executeStatement($sql);
-            }
-        } finally {
-            $this->connection->executeStatement('SET search_path TO public');
-        }
     }
 }

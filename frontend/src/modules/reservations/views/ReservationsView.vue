@@ -2,14 +2,12 @@
 import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useReservationsStore } from '@/stores/reservations.store'
-import { useI18n } from 'vue-i18n'
 import type { ReservationStatus, Reservation } from '@/types/entities'
 import { formatCurrency } from '@/utils/currency'
 import ReservationForm from '@/modules/reservations/components/ReservationForm.vue'
 import CheckInModal from '@/modules/reservations/components/CheckInModal.vue'
 import CheckOutModal from '@/modules/reservations/components/CheckOutModal.vue'
 
-const { t, n, d } = useI18n()
 const store  = useReservationsStore()
 const router = useRouter()
 
@@ -304,6 +302,7 @@ onMounted(() => {
     <CheckOutModal
       v-if="checkOutTarget"
       :reservation-id="checkOutTarget"
+      :total="store.reservations.find(r => r.id === checkOutTarget)?.totalXof"
       @close="checkOutTarget = null"
       @done="onCheckOutDone()"
     />

@@ -40,7 +40,14 @@ export interface Guest {
   lastName: string
   email: string | null
   phone: string | null
-  totalStays: number
+  nationality?: string | null
+  documentType?: string | null
+  documentNumber?: string | null
+  documentUrl?: string | null
+  address?: string | null
+  city?: string | null
+  country?: string | null
+  totalStays?: number
 }
 
 export interface Reservation {

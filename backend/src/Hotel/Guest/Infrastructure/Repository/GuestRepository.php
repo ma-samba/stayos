@@ -13,6 +13,26 @@ class GuestRepository extends ServiceEntityRepository
         parent::__construct($registry, Guest::class);
     }
 
+    public function findAllPaginated(int $page = 1, int $limit = 20): array
+    {
+        $offset = ($page - 1) * $limit;
+
+        return $this->createQueryBuilder('g')
+            ->orderBy('g.lastName', 'ASC')
+            ->setFirstResult($offset)
+            ->setMaxResults($limit)
+            ->getQuery()
+            ->getResult();
+    }
+
+    public function countAll(): int
+    {
+        return (int) $this->createQueryBuilder('g')
+            ->select('COUNT(g.id)')
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
     public function searchByQuery(string $query): array
     {
         $like = '%' . strtolower($query) . '%';

@@ -12,6 +12,7 @@ const isSidebarCollapsed = ref(false)
 
 const navItems = [
   { path: '/rooms',         icon: 'ti-bed',              label: 'Chambres' },
+  { path: '/guests',        icon: 'ti-users',            label: 'Clients' },
   { path: '/reservations',  icon: 'ti-calendar',         label: 'Réservations' },
 ]
 

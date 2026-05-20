@@ -29,6 +29,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/modules/reservations/views/ReservationDetailView.vue'),
     meta: { requiresAuth: true, title: 'Détail réservation' },
   },
+  {
+    path: '/guests',
+    name: 'guests',
+    component: () => import('@/modules/guests/views/GuestsView.vue'),
+    meta: { requiresAuth: true, title: 'Clients' },
+  },
+  {
+    path: '/guests/:id',
+    name: 'guest-profile',
+    component: () => import('@/modules/guests/views/GuestProfileView.vue'),
+    meta: { requiresAuth: true, title: 'Profil client' },
+  },
 ]
 
 const router = createRouter({

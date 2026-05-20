@@ -36,34 +36,46 @@ class Guest
     private ?string $phone = null;
 
     #[ORM\Column(length: 2, nullable: true)]
+    #[Groups(['guest:detail'])]
     private ?string $nationality = null;
 
     #[ORM\Column(length: 30, nullable: true)]
+    #[Groups(['guest:detail'])]
     private ?string $documentType = null;
 
     #[ORM\Column(length: 60, nullable: true)]
+    #[Groups(['guest:detail'])]
     private ?string $documentNumber = null;
 
+    #[ORM\Column(length: 500, nullable: true)]
+    #[Groups(['guest:read', 'guest:detail'])]
+    private ?string $documentUrl = null;
+
     #[ORM\Column(nullable: true)]
+    #[Groups(['guest:detail'])]
     private ?\DateTimeImmutable $dateOfBirth = null;
 
     #[ORM\Column(length: 255, nullable: true)]
+    #[Groups(['guest:detail'])]
     private ?string $address = null;
 
     #[ORM\Column(length: 100, nullable: true)]
+    #[Groups(['guest:detail'])]
     private ?string $city = null;
 
     #[ORM\Column(length: 2, nullable: true)]
+    #[Groups(['guest:detail'])]
     private ?string $country = null;
 
     #[ORM\Column(type: 'json', nullable: true)]
     private ?array $preferences = null;
 
     #[ORM\Column(options: ['default' => 0])]
-    #[Groups(['reservation:read', 'guest:read'])]
+    #[Groups(['guest:read', 'guest:detail'])]
     private int $totalStays = 0;
 
     #[ORM\Column]
+    #[Groups(['guest:detail'])]
     private \DateTimeImmutable $createdAt;
 
     #[ORM\Column]
@@ -166,6 +178,17 @@ class Guest
     public function setDocumentNumber(?string $documentNumber): self
     {
         $this->documentNumber = $documentNumber;
+        return $this;
+    }
+
+    public function getDocumentUrl(): ?string
+    {
+        return $this->documentUrl;
+    }
+
+    public function setDocumentUrl(?string $documentUrl): self
+    {
+        $this->documentUrl = $documentUrl;
         return $this;
     }
 

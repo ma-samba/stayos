@@ -31,6 +31,24 @@ class TenantRepository extends ServiceEntityRepository
     }
 
     /**
+     * Retourne tous les tenants actifs (TRIAL ou ACTIVE).
+     *
+     * @return Tenant[]
+     */
+    public function findAllActive(): array
+    {
+        return $this->createQueryBuilder('t')
+            ->andWhere('t.status IN (:statuses)')
+            ->setParameter('statuses', [
+                TenantStatus::ACTIVE->value,
+                TenantStatus::TRIAL->value,
+            ])
+            ->orderBy('t.slug', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Charge un tenant actif (TRIAL ou ACTIVE) par son slug.
      * Utilisé par le TenantMiddleware à chaque requête.
      */

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useReservationsStore } from '@/stores/reservations.store'
+import { formatCurrency } from '@/utils/currency'
 
 const props = defineProps<{
   reservationId: string
+  total?: string
 }>()
 
 const emit = defineEmits<{
@@ -46,6 +48,16 @@ async function confirm(): Promise<void> {
           Confirmer le check-out
         </h3>
         <p class="t-muted">La chambre sera marquée en ménage. Le nombre de séjours du client sera incrémenté.</p>
+      </div>
+
+      <div v-if="props.total" class="card-sand" style="padding:12px; border-radius:var(--radius-md); margin-bottom:1rem;">
+        <div style="display:flex; justify-content:space-between; font-size:15px; font-weight:500;">
+          <span>Total séjour</span>
+          <span>{{ formatCurrency(props.total) }}</span>
+        </div>
+        <div class="t-muted" style="font-size:12px; margin-top:4px;">
+          Une facture brouillon sera générée automatiquement.
+        </div>
       </div>
 
       <div v-if="error"

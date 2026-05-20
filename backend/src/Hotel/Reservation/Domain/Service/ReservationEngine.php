@@ -2,6 +2,7 @@
 
 namespace App\Hotel\Reservation\Domain\Service;
 
+use App\Hotel\Billing\Domain\Service\InvoiceDraftService;
 use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
 use App\Hotel\Housekeeping\Domain\Entity\CleaningTask;
 use App\Hotel\Housekeeping\Domain\Enum\CleaningType;
@@ -17,6 +18,7 @@ use App\Platform\Auth\Domain\Entity\StaffUser;
 use App\Shared\Exception\BusinessRuleException;
 use App\Shared\Mercure\MercurePublisher;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class ReservationEngine
@@ -28,6 +30,8 @@ class ReservationEngine
         private readonly ConflictChecker        $conflictChecker,
         private readonly AuditService           $auditService,
         private readonly MercurePublisher       $mercurePublisher,
+        private readonly InvoiceDraftService    $invoiceDraftService,
+        private readonly LoggerInterface        $logger,
         private readonly EntityManagerInterface $entityManager,
     ) {}
 
@@ -330,6 +334,17 @@ class ReservationEngine
             'confirmationNumber' => $reservation->getConfirmationNumber(),
             'room'               => $reservation->getRoom()->getNumber(),
         ]);
+
+        // Facture draft générée APRÈS le check-out (isolée et
+        // non-bloquante : un échec facture n'annule pas le check-out)
+        try {
+            $this->invoiceDraftService->createFromReservation($reservation);
+        } catch (\Throwable $e) {
+            $this->logger->error('Échec génération facture draft au check-out', [
+                'reservation' => (string) $reservation->getId(),
+                'error'       => $e->getMessage(),
+            ]);
+        }
 
         return $reservation;
     }

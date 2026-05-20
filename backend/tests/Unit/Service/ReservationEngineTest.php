@@ -10,6 +10,7 @@ use App\Hotel\Reservation\Domain\Entity\Reservation;
 use App\Hotel\Reservation\Domain\Enum\ReservationStatus;
 use App\Hotel\Reservation\Domain\Service\ConflictChecker;
 use App\Hotel\Reservation\Domain\Service\ReservationEngine;
+use App\Hotel\Billing\Domain\Service\InvoiceDraftService;
 use App\Hotel\Reservation\Infrastructure\Repository\ReservationRepository;
 use App\Hotel\Room\Domain\Entity\Room;
 use App\Hotel\Room\Domain\Entity\RoomType;
@@ -22,6 +23,7 @@ use App\Shared\Mercure\MercurePublisher;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\Uuid;
 
 class ReservationEngineTest extends TestCase
@@ -33,6 +35,8 @@ class ReservationEngineTest extends TestCase
     private MockObject&ConflictChecker $conflictChecker;
     private MockObject&AuditService $auditService;
     private MockObject&MercurePublisher $mercurePublisher;
+    private MockObject&InvoiceDraftService $invoiceDraftService;
+    private MockObject&LoggerInterface $logger;
     private MockObject&EntityManagerInterface $entityManager;
     private MockObject&StaffUser $staff;
 
@@ -42,9 +46,11 @@ class ReservationEngineTest extends TestCase
         $this->roomRepo         = $this->createMock(RoomRepository::class);
         $this->guestRepo        = $this->createMock(GuestRepository::class);
         $this->conflictChecker  = $this->createMock(ConflictChecker::class);
-        $this->auditService     = $this->createMock(AuditService::class);
-        $this->mercurePublisher = $this->createMock(MercurePublisher::class);
-        $this->entityManager    = $this->createMock(EntityManagerInterface::class);
+        $this->auditService      = $this->createMock(AuditService::class);
+        $this->mercurePublisher  = $this->createMock(MercurePublisher::class);
+        $this->invoiceDraftService = $this->createMock(InvoiceDraftService::class);
+        $this->logger            = $this->createMock(LoggerInterface::class);
+        $this->entityManager     = $this->createMock(EntityManagerInterface::class);
 
         $this->engine = new ReservationEngine(
             $this->reservationRepo,
@@ -53,6 +59,8 @@ class ReservationEngineTest extends TestCase
             $this->conflictChecker,
             $this->auditService,
             $this->mercurePublisher,
+            $this->invoiceDraftService,
+            $this->logger,
             $this->entityManager,
         );
 
@@ -240,7 +248,55 @@ class ReservationEngineTest extends TestCase
         $this->assertStringContainsString('Client demande annulation', $result->getNotes());
     }
 
-    // ── Test 7 : Calcul du total ──
+    // ── Test 7 : Check-out génère une facture draft ──
+
+    public function testCheckOutTriggersInvoiceDraft(): void
+    {
+        $room  = $this->makeRoom();
+        $guest = $this->makeGuest();
+
+        $room->method('setStatusEnum');
+        $guest->method('getTotalStays')->willReturn(0);
+        $guest->method('setTotalStays');
+
+        $reservation = $this->makeReservation('checked_in', $room, $guest);
+
+        $this->invoiceDraftService
+            ->expects($this->once())
+            ->method('createFromReservation')
+            ->with($reservation);
+
+        $this->engine->checkOut($reservation, $this->staff);
+    }
+
+    // ── Test 8 : Check-out ne bloque pas si la facture échoue ──
+
+    public function testCheckOutContinuesIfInvoiceFails(): void
+    {
+        $room  = $this->makeRoom();
+        $guest = $this->makeGuest();
+
+        $room->method('setStatusEnum');
+        $guest->method('getTotalStays')->willReturn(1);
+        $guest->method('setTotalStays');
+
+        $reservation = $this->makeReservation('checked_in', $room, $guest);
+
+        $this->invoiceDraftService
+            ->method('createFromReservation')
+            ->willThrowException(new \RuntimeException('DB down'));
+
+        $this->logger
+            ->expects($this->once())
+            ->method('error')
+            ->with($this->stringContains('facture draft'));
+
+        $result = $this->engine->checkOut($reservation, $this->staff);
+
+        $this->assertEquals('checked_out', $result->getStatus());
+    }
+
+    // ── Test 9 : Calcul du total ──
 
     public function testTotalCalculation(): void
     {

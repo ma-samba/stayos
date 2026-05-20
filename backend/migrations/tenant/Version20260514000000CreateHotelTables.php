@@ -4,17 +4,24 @@ declare(strict_types=1);
 
 namespace DoctrineMigrations\Tenant;
 
+use App\Platform\Tenant\Domain\Migration\TenantMigrationInterface;
+
 /**
  * Migration tenant — Crée toutes les tables métier dans le schema hotel_{uuid}.
  *
  * Ce fichier n'est PAS exécuté via doctrine:migrations:migrate (qui gère le schema public).
- * Il est exécuté par TenantProvisioner::applyTenantMigration() qui remplace le search_path
+ * Il est exécuté par TenantMigrator qui positionne le search_path
  * avant d'exécuter chaque instruction SQL.
  *
  * Convention : utiliser le nom de table sans préfixe de schema — le search_path s'en charge.
  */
-final class Version20260514000000CreateHotelTables
+final class Version20260514000000CreateHotelTables implements TenantMigrationInterface
 {
+    public function getVersion(): string
+    {
+        return '20260514000000';
+    }
+
     /**
      * @return string[]
      */

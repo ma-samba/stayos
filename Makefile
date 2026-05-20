@@ -4,8 +4,15 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 .DEFAULT_GOAL := help
+
+# Charge les variables depuis .env si présent
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
 .PHONY: help install start stop restart build logs shell shell-db shell-redis \
-        shell-front migrate migrate-run migrate-status migrate-tenant-all \
+        shell-front migrate migrate-run migrate-status migrate-tenant-all migrate-tenant-dry \
         fixtures db-reset validate-schema jwt cache \
         test test-unit test-functional test-security test-coverage test-setup \
         lint cs cs-fix stan worker worker-failed \
@@ -46,6 +53,8 @@ install: ## 🚀 Installation complète du projet (1ère fois)
 	docker compose exec php php bin/console doctrine:fixtures:load \
 		--no-interaction \
 		--purger=tenant_aware
+	@echo "$(GREEN)▶ Migrations tenant...$(RESET)"
+	docker compose exec php php bin/console stayos:tenant:migrate
 	@echo "$(GREEN)▶ BDD de test...$(RESET)"
 	$(MAKE) test-setup
 	@echo "$(GREEN)▶ npm install...$(RESET)"
@@ -112,10 +121,10 @@ shell: ## 💻 Shell dans le conteneur PHP
 	docker compose exec php sh
 
 shell-db: ## 💻 Shell PostgreSQL
-	docker compose exec db psql -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+	docker compose exec db psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
 
 shell-db-test: ## 💻 Shell PostgreSQL (BDD test)
-	docker compose exec db psql -U $${POSTGRES_USER} -d stayos_test
+	docker compose exec db psql -U $(POSTGRES_USER) -d stayos_test
 
 shell-redis: ## 💻 Shell Redis CLI
 	docker compose exec redis redis-cli
@@ -138,7 +147,10 @@ migrate-status: ## 🗄 Statut des migrations
 	docker compose exec php php bin/console doctrine:migrations:status
 
 migrate-tenant-all: ## 🗄 Appliquer migrations sur tous les schemas tenant
-	docker compose exec php php bin/console stayos:migrations:migrate-all-tenants
+	docker compose exec php php bin/console stayos:tenant:migrate
+
+migrate-tenant-dry: ## 🗄 Voir les migrations tenant en attente (dry-run)
+	docker compose exec php php bin/console stayos:tenant:migrate --dry-run
 
 fixtures: ## 🌱 Recharger les fixtures
 	docker compose exec php php bin/console doctrine:fixtures:load \
@@ -152,6 +164,7 @@ db-reset: ## ⚠️  Reset complet BDD (drop + create + migrate + fixtures)
 	docker compose exec php php bin/console doctrine:fixtures:load \
 		--no-interaction \
 		--purger=tenant_aware
+	docker compose exec php php bin/console stayos:tenant:migrate
 
 validate-schema: ## ✅ Valider le schéma Doctrine
 	docker compose exec php php bin/console doctrine:schema:validate

@@ -5,8 +5,9 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **aucun démarré**
-- Dernière mise à jour : mai 2026
+- Sprint courant : **Sprint 7 — Facturation & paiements**
+- Dernière mise à jour : 20 mai 2026
+- Sprints terminés : 1, 2, 3, 4, 5, 6
 
 ---
 
@@ -25,7 +26,7 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ## Sprints détaillés
 
-### ⬜ Sprint 1 — Infrastructure & multi-tenant
+### ✅ Sprint 1 — Infrastructure & multi-tenant
 **Objectif** : Docker tourne, le multi-tenant fonctionne, on peut router une requête vers le bon schema PostgreSQL.
 
 **Backend**
@@ -46,7 +47,7 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### ⬜ Sprint 2 — Auth & onboarding
+### ✅ Sprint 2 — Auth & onboarding
 **Objectif** : un hôtel peut s'inscrire, recevoir un OTP, se connecter, obtenir un JWT.
 
 **Backend**
@@ -77,7 +78,7 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### ⬜ Sprint 3 — Entités & migrations
+### ✅ Sprint 3 — Entités & migrations
 **Objectif** : toutes les entités Doctrine existent, schema BDD complet, fixtures chargent.
 
 **Backend**
@@ -101,7 +102,7 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### ⬜ Sprint 4 — Chambres & disponibilité
+### ✅ Sprint 4 — Chambres & disponibilité
 **Objectif** : plan des chambres, changement de statut, vérification disponibilités.
 
 **Backend**
@@ -126,7 +127,7 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### ⬜ Sprint 5 — Réservations
+### ✅ Sprint 5 — Réservations
 **Objectif** : créer, modifier, annuler une réservation. Planning Gantt.
 
 **Backend**
@@ -154,36 +155,45 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### ⬜ Sprint 6 — Clients & check-in/out
+### ✅ Sprint 6 — Clients & check-in/out
 **Objectif** : gérer le profil client, enregistrer les arrivées/départs.
 
 **Backend**
-- [ ] `GuestController` — CRUD + recherche fulltext
-- [ ] `GuestService::search()` — nom/email/document
-- [ ] `GuestService::findOrCreate()` — évite les doublons
-- [ ] `ReservationEngine::checkIn()` — chambre OCCUPIED + tâche ménage + audit
-- [ ] `ReservationEngine::checkOut()` — chambre CLEANING + facture draft + audit
-- [ ] Upload document → Uploadcare + stockage URL
+- [x] `GuestController` — CRUD + recherche fulltext
+- [x] `GuestService::search()` — nom/email/document
+- [x] `GuestService::findOrCreate()` — évite les doublons
+- [x] `ReservationEngine::checkIn()` — chambre OCCUPIED + tâche ménage + audit
+- [x] `ReservationEngine::checkOut()` — chambre CLEANING + facture draft + audit
+- [x] Upload document → Uploadcare + stockage URL
 
 **Frontend**
-- [ ] `GuestsView.vue` — liste + recherche rapide
-- [ ] `GuestProfileView.vue` — fiche + historique séjours
-- [ ] `GuestSearch.vue` — recherche rapide réception
-- [ ] `CheckInModal.vue` — confirmation + upload document
-- [ ] `CheckOutModal.vue` — confirmation + solde restant
+- [x] `GuestsView.vue` — liste + recherche rapide
+- [x] `GuestProfileView.vue` — fiche + historique séjours + édition
+- [x] `GuestSearch.vue` — recherche rapide réception
+- [x] `CheckInModal.vue` — confirmation + upload document
+- [x] `CheckOutModal.vue` — confirmation + solde restant + montant total
 
 **Tests**
-- [ ] `GuestSearchTest` — recherche par nom partiel
-- [ ] `GuestSearchTest` — cross-tenant impossible
-- [ ] `CheckInTest` — statut chambre → OCCUPIED
-- [ ] `CheckInTest` — tâche ménage créée automatiquement
-- [ ] `CheckOutTest` — facture draft générée
+- [x] `GuestControllerTest` — auth gating + cross-tenant isolation
+- [x] `ReservationEngineTest` — checkOut génère facture draft
+- [x] `ReservationEngineTest` — checkOut non-bloquant si facture échoue
+- [x] `InvoiceDraftServiceTest` — TVA TTC, idempotence, ligne facture
+- [x] `ReservationEngineTest` — checkIn → chambre OCCUPIED
+
+**Ajouts non planifiés (Sprint 6)**
+- [x] `TenantMigrator` versionné — interface, registry, migrator, CLI `stayos:tenant:migrate`
+- [x] Sécurité TenantMigrator — validation schema name (anti-injection SQL), dry-run read-only
+- [x] `InvoiceDraftService` — génération automatique facture brouillon au check-out
+- [x] Migration `AddGuestDocumentUrl` — champ `document_url` sur `guests`
+- [x] `formatCurrency()` helper centralisé (frontend)
+- [x] `GuestProfileView` — mode lecture + mode édition avec formulaire complet
+- [x] Makefile — chargement `.env`, cibles psql robustes, commandes tenant
 
 **Livrable** : workflow réception complet (arrivée → séjour → départ)
 
 ---
 
-### ⬜ Sprint 7 — Facturation & paiements
+### 🔄 Sprint 7 — Facturation & paiements (en cours)
 **Objectif** : émettre une facture, paiement Paydunya, PDF envoyé par email.
 
 **Backend**

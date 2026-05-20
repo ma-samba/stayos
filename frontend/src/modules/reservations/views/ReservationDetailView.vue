@@ -64,13 +64,21 @@ async function onEdited(): Promise<void> {
   await load()
 }
 
+function goBack(): void {
+  if (window.history.length > 1) {
+    router.back()
+  } else {
+    router.push('/reservations')
+  }
+}
+
 onMounted(load)
 </script>
 
 <template>
   <div style="padding:1.5rem; max-width:900px; margin:0 auto;">
-    <button class="btn btn-ghost btn-sm" style="margin-bottom:1rem;" @click="router.push('/reservations')">
-      <i class="ti ti-arrow-left"></i> Retour aux réservations
+    <button class="btn btn-ghost btn-sm" style="margin-bottom:1rem;" @click="goBack()">
+      <i class="ti ti-arrow-left"></i> Retour
     </button>
 
     <!-- Chargement -->
@@ -82,7 +90,7 @@ onMounted(load)
     <div v-else-if="error" class="empty-state">
       <i class="ti ti-alert-circle"></i>
       <div>{{ error }}</div>
-      <button class="btn btn-secondary btn-sm" @click="router.push('/reservations')">Retour</button>
+      <button class="btn btn-secondary btn-sm" @click="goBack()">Retour</button>
     </div>
 
     <div v-else-if="reservation">
