@@ -4,6 +4,7 @@ namespace App\Hotel\Guest\Domain\Entity;
 
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
+use Symfony\Component\Serializer\Attribute\Groups;
 use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity]
@@ -15,18 +16,23 @@ class Guest
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
+    #[Groups(['reservation:read', 'guest:read'])]
     private Uuid $id;
 
     #[ORM\Column(length: 100)]
+    #[Groups(['reservation:read', 'guest:read'])]
     private string $firstName;
 
     #[ORM\Column(length: 100)]
+    #[Groups(['reservation:read', 'guest:read'])]
     private string $lastName;
 
     #[ORM\Column(length: 180, nullable: true)]
+    #[Groups(['reservation:read', 'guest:read'])]
     private ?string $email = null;
 
     #[ORM\Column(length: 20, nullable: true)]
+    #[Groups(['reservation:read', 'guest:read'])]
     private ?string $phone = null;
 
     #[ORM\Column(length: 2, nullable: true)]
@@ -54,6 +60,7 @@ class Guest
     private ?array $preferences = null;
 
     #[ORM\Column(options: ['default' => 0])]
+    #[Groups(['reservation:read', 'guest:read'])]
     private int $totalStays = 0;
 
     #[ORM\Column]

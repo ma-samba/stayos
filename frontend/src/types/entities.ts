@@ -28,6 +28,80 @@ export interface Room {
 }
 
 // ──────────────────────────────────────────────────────────────
+//  Réservations
+// ──────────────────────────────────────────────────────────────
+
+export type ReservationStatus = 'confirmed' | 'pending' | 'checked_in' | 'checked_out' | 'cancelled' | 'no_show'
+export type ReservationSource = 'direct' | 'booking_com' | 'airbnb' | 'expedia' | 'walk_in'
+
+export interface Guest {
+  id: string
+  firstName: string
+  lastName: string
+  email: string | null
+  phone: string | null
+  totalStays: number
+}
+
+export interface Reservation {
+  id: string
+  confirmationNumber: string
+  status: ReservationStatus
+  checkIn: string
+  checkOut: string
+  adults: number
+  children: number
+  rateXof: string
+  totalXof: string
+  source: string
+  notes: string | null
+  specialRequests: string | null
+  checkedInAt: string | null
+  checkedOutAt: string | null
+  guest: Guest
+  room: Room
+}
+
+export interface ReservationGantt {
+  id: string
+  confirmationNumber: string
+  status: ReservationStatus
+  checkIn: string
+  checkOut: string
+  room: {
+    id: string
+    number: string
+    type: { id: string; name: string }
+  }
+}
+
+export interface CreateReservationPayload {
+  roomId: string
+  guestId: string
+  checkIn: string
+  checkOut: string
+  adults: number
+  children: number
+  notes?: string
+  specialRequests?: string
+  source?: string
+  depositXof?: string
+}
+
+export interface UpdateReservationPayload {
+  roomId?: string
+  guestId?: string
+  checkIn?: string
+  checkOut?: string
+  adults?: number
+  children?: number
+  notes?: string
+  specialRequests?: string
+  source?: string
+  depositXof?: string
+}
+
+// ──────────────────────────────────────────────────────────────
 //  Réponses API standard
 // ──────────────────────────────────────────────────────────────
 

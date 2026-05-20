@@ -35,7 +35,7 @@ class MercurePublisher
             return;
         }
 
-        $tenantId = (string) $this->tenantContext->getTenant()->getId();
+        $tenantId = (string) $this->tenantContext->get()->getId();
         $namespacedTopic = sprintf('/hotel/%s/%s', $tenantId, $topic);
 
         $update = new Update(
@@ -43,6 +43,11 @@ class MercurePublisher
             json_encode($payload),
         );
 
-        $this->hub->publish($update);
+        try {
+            $this->hub->publish($update);
+        } catch (\Throwable) {
+            // Hub Mercure indisponible (ex: dev sans serveur Mercure)
+            // On ne bloque pas le flux métier
+        }
     }
 }

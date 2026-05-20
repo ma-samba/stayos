@@ -1,0 +1,275 @@
+<?php
+
+namespace App\Tests\Unit\Service;
+
+use App\Hotel\Guest\Domain\Entity\Guest;
+use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
+use App\Hotel\Reservation\Application\DTO\CreateReservationDTO;
+use App\Hotel\Reservation\Application\DTO\UpdateReservationDTO;
+use App\Hotel\Reservation\Domain\Entity\Reservation;
+use App\Hotel\Reservation\Domain\Enum\ReservationStatus;
+use App\Hotel\Reservation\Domain\Service\ConflictChecker;
+use App\Hotel\Reservation\Domain\Service\ReservationEngine;
+use App\Hotel\Reservation\Infrastructure\Repository\ReservationRepository;
+use App\Hotel\Room\Domain\Entity\Room;
+use App\Hotel\Room\Domain\Entity\RoomType;
+use App\Hotel\Room\Domain\Enum\RoomStatus;
+use App\Hotel\Room\Infrastructure\Repository\RoomRepository;
+use App\Hotel\Shared\Domain\Service\AuditService;
+use App\Platform\Auth\Domain\Entity\StaffUser;
+use App\Shared\Exception\ConflictException;
+use App\Shared\Mercure\MercurePublisher;
+use Doctrine\ORM\EntityManagerInterface;
+use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\TestCase;
+use Symfony\Component\Uid\Uuid;
+
+class ReservationEngineTest extends TestCase
+{
+    private ReservationEngine $engine;
+    private MockObject&ReservationRepository $reservationRepo;
+    private MockObject&RoomRepository $roomRepo;
+    private MockObject&GuestRepository $guestRepo;
+    private MockObject&ConflictChecker $conflictChecker;
+    private MockObject&AuditService $auditService;
+    private MockObject&MercurePublisher $mercurePublisher;
+    private MockObject&EntityManagerInterface $entityManager;
+    private MockObject&StaffUser $staff;
+
+    protected function setUp(): void
+    {
+        $this->reservationRepo  = $this->createMock(ReservationRepository::class);
+        $this->roomRepo         = $this->createMock(RoomRepository::class);
+        $this->guestRepo        = $this->createMock(GuestRepository::class);
+        $this->conflictChecker  = $this->createMock(ConflictChecker::class);
+        $this->auditService     = $this->createMock(AuditService::class);
+        $this->mercurePublisher = $this->createMock(MercurePublisher::class);
+        $this->entityManager    = $this->createMock(EntityManagerInterface::class);
+
+        $this->engine = new ReservationEngine(
+            $this->reservationRepo,
+            $this->roomRepo,
+            $this->guestRepo,
+            $this->conflictChecker,
+            $this->auditService,
+            $this->mercurePublisher,
+            $this->entityManager,
+        );
+
+        $this->staff = $this->createMock(StaffUser::class);
+    }
+
+    private function makeRoom(string $number = '101', string $baseRate = '45000.00'): Room
+    {
+        $roomType = $this->createMock(RoomType::class);
+        $roomType->method('getBaseRateXof')->willReturn($baseRate);
+
+        $room = $this->createMock(Room::class);
+        $room->method('getId')->willReturn(Uuid::v4());
+        $room->method('getNumber')->willReturn($number);
+        $room->method('getType')->willReturn($roomType);
+
+        return $room;
+    }
+
+    private function makeGuest(string $firstName = 'Amadou', string $lastName = 'Diallo'): Guest
+    {
+        $guest = $this->createMock(Guest::class);
+        $guest->method('getId')->willReturn(Uuid::v4());
+        $guest->method('getFullName')->willReturn($firstName . ' ' . $lastName);
+
+        return $guest;
+    }
+
+    private function makeReservation(string $status = 'confirmed', ?Room $room = null, ?Guest $guest = null): Reservation
+    {
+        $reservation = new Reservation();
+
+        // Set ID via reflection (normally set by Doctrine on persist)
+        $ref = new \ReflectionProperty(Reservation::class, 'id');
+        $ref->setValue($reservation, Uuid::v4());
+
+        $reservation->setStatusEnum(ReservationStatus::from($status));
+        $reservation->setCheckIn(new \DateTimeImmutable('2026-06-01', new \DateTimeZone('Africa/Dakar')));
+        $reservation->setCheckOut(new \DateTimeImmutable('2026-06-04', new \DateTimeZone('Africa/Dakar')));
+        $reservation->setRateXof('45000.00');
+        $reservation->setTotalXof('135000.00');
+        $reservation->setConfirmationNumber('RES-2026-00001');
+        $reservation->setAdults(2);
+        $reservation->setChildren(0);
+
+        if ($room) {
+            $reservation->setRoom($room);
+        }
+        if ($guest) {
+            $reservation->setGuest($guest);
+        }
+
+        return $reservation;
+    }
+
+    // ── Test 1 : Création réussie ──
+
+    public function testCreateReservationSuccess(): void
+    {
+        $room  = $this->makeRoom('312', '45000.00');
+        $guest = $this->makeGuest();
+
+        $this->roomRepo->method('find')->willReturn($room);
+        $this->guestRepo->method('find')->willReturn($guest);
+        $this->conflictChecker->expects($this->once())->method('assertAvailable');
+        $this->reservationRepo->method('generateConfirmationNumber')->willReturn('RES-2026-00042');
+        $this->entityManager->expects($this->once())->method('persist')
+            ->willReturnCallback(function (object $entity) {
+                if ($entity instanceof Reservation) {
+                    $ref = new \ReflectionProperty(Reservation::class, 'id');
+                    $ref->setValue($entity, Uuid::v4());
+                }
+            });
+        $this->entityManager->expects($this->once())->method('flush');
+
+        $dto = new CreateReservationDTO();
+        $dto->roomId   = (string) Uuid::v4();
+        $dto->guestId  = (string) Uuid::v4();
+        $dto->checkIn  = '2026-06-01';
+        $dto->checkOut = '2026-06-04';
+        $dto->adults   = 2;
+
+        $reservation = $this->engine->create($dto, $this->staff);
+
+        $this->assertEquals('RES-2026-00042', $reservation->getConfirmationNumber());
+        $this->assertEquals('confirmed', $reservation->getStatus());
+        $this->assertEquals('135000.00', $reservation->getTotalXof());
+        $this->assertEquals(3, $reservation->getNights());
+    }
+
+    // ── Test 2 : Conflit de réservation ──
+
+    public function testCreateReservationConflictThrows(): void
+    {
+        $room  = $this->makeRoom();
+        $guest = $this->makeGuest();
+
+        $this->roomRepo->method('find')->willReturn($room);
+        $this->guestRepo->method('find')->willReturn($guest);
+        $this->conflictChecker
+            ->method('assertAvailable')
+            ->willThrowException(new ConflictException('Cette chambre est déjà réservée pour ces dates.'));
+
+        $dto = new CreateReservationDTO();
+        $dto->roomId   = (string) Uuid::v4();
+        $dto->guestId  = (string) Uuid::v4();
+        $dto->checkIn  = '2026-06-01';
+        $dto->checkOut = '2026-06-04';
+
+        $this->expectException(ConflictException::class);
+        $this->engine->create($dto, $this->staff);
+    }
+
+    // ── Test 3 : Chambre introuvable ──
+
+    public function testCreateReservationRoomNotFound(): void
+    {
+        $this->roomRepo->method('find')->willReturn(null);
+
+        $dto = new CreateReservationDTO();
+        $dto->roomId   = (string) Uuid::v4();
+        $dto->guestId  = (string) Uuid::v4();
+        $dto->checkIn  = '2026-06-01';
+        $dto->checkOut = '2026-06-04';
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
+        $this->engine->create($dto, $this->staff);
+    }
+
+    // ── Test 4 : Check-in ──
+
+    public function testCheckInSetsRoomOccupied(): void
+    {
+        $room  = $this->makeRoom();
+        $guest = $this->makeGuest();
+
+        $room->expects($this->once())->method('setStatusEnum')->with(RoomStatus::OCCUPIED);
+
+        $reservation = $this->makeReservation('confirmed', $room, $guest);
+
+        $this->entityManager->expects($this->once())->method('persist'); // CleaningTask
+        $this->entityManager->expects($this->once())->method('flush');
+
+        $result = $this->engine->checkIn($reservation, null, $this->staff);
+
+        $this->assertEquals('checked_in', $result->getStatus());
+        $this->assertNotNull($result->getCheckedInAt());
+    }
+
+    // ── Test 5 : Check-out ──
+
+    public function testCheckOutSetsRoomCleaning(): void
+    {
+        $room  = $this->makeRoom();
+        $guest = $this->makeGuest();
+
+        $room->expects($this->once())->method('setStatusEnum')->with(RoomStatus::CLEANING);
+        $guest->method('getTotalStays')->willReturn(2);
+        $guest->expects($this->once())->method('setTotalStays')->with(3);
+
+        $reservation = $this->makeReservation('checked_in', $room, $guest);
+
+        $this->entityManager->expects($this->once())->method('flush');
+
+        $result = $this->engine->checkOut($reservation, $this->staff);
+
+        $this->assertEquals('checked_out', $result->getStatus());
+        $this->assertNotNull($result->getCheckedOutAt());
+    }
+
+    // ── Test 6 : Annulation ──
+
+    public function testCancelSetsStatusCancelled(): void
+    {
+        $room  = $this->makeRoom();
+        $guest = $this->makeGuest();
+
+        $reservation = $this->makeReservation('confirmed', $room, $guest);
+
+        $this->entityManager->expects($this->once())->method('flush');
+
+        $result = $this->engine->cancel($reservation, 'Client demande annulation', $this->staff);
+
+        $this->assertEquals('cancelled', $result->getStatus());
+        $this->assertStringContainsString('Client demande annulation', $result->getNotes());
+    }
+
+    // ── Test 7 : Calcul du total ──
+
+    public function testTotalCalculation(): void
+    {
+        $room  = $this->makeRoom('205', '55000.00');
+        $guest = $this->makeGuest('Fatou', 'Ndiaye');
+
+        $this->roomRepo->method('find')->willReturn($room);
+        $this->guestRepo->method('find')->willReturn($guest);
+        $this->conflictChecker->expects($this->once())->method('assertAvailable');
+        $this->reservationRepo->method('generateConfirmationNumber')->willReturn('RES-2026-00100');
+        $this->entityManager->expects($this->once())->method('persist')
+            ->willReturnCallback(function (object $entity) {
+                if ($entity instanceof Reservation) {
+                    $ref = new \ReflectionProperty(Reservation::class, 'id');
+                    $ref->setValue($entity, Uuid::v4());
+                }
+            });
+        $this->entityManager->expects($this->once())->method('flush');
+
+        $dto = new CreateReservationDTO();
+        $dto->roomId   = (string) Uuid::v4();
+        $dto->guestId  = (string) Uuid::v4();
+        $dto->checkIn  = '2026-07-10';
+        $dto->checkOut = '2026-07-15'; // 5 nuits
+
+        $reservation = $this->engine->create($dto, $this->staff);
+
+        // 5 nuits × 55 000 = 275 000
+        $this->assertEquals('275000.00', $reservation->getTotalXof());
+        $this->assertEquals('55000.00', $reservation->getRateXof());
+    }
+}

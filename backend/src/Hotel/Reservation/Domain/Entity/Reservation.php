@@ -8,6 +8,7 @@ use App\Hotel\Reservation\Domain\Enum\ReservationStatus;
 use App\Hotel\Room\Domain\Entity\Room;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
+use Symfony\Component\Serializer\Attribute\Groups;
 use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity]
@@ -19,62 +20,81 @@ class Reservation
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
+    #[Groups(['reservation:read', 'reservation:gantt'])]
     private Uuid $id;
 
     #[ORM\Column(length: 30, unique: true)]
+    #[Groups(['reservation:read', 'reservation:gantt'])]
     private string $confirmationNumber;
 
     #[ORM\ManyToOne(targetEntity: Guest::class)]
     #[ORM\JoinColumn(nullable: false)]
+    #[Groups(['reservation:read'])]
     private Guest $guest;
 
     #[ORM\ManyToOne(targetEntity: Room::class)]
     #[ORM\JoinColumn(nullable: false)]
+    #[Groups(['reservation:read', 'reservation:gantt'])]
     private Room $room;
 
     #[ORM\Column(length: 20, options: ['default' => 'confirmed'])]
+    #[Groups(['reservation:read', 'reservation:gantt'])]
     private string $status = ReservationStatus::CONFIRMED->value;
 
     #[ORM\Column(type: 'date_immutable')]
+    #[Groups(['reservation:read', 'reservation:gantt'])]
     private \DateTimeImmutable $checkIn;
 
     #[ORM\Column(type: 'date_immutable')]
+    #[Groups(['reservation:read', 'reservation:gantt'])]
     private \DateTimeImmutable $checkOut;
 
     #[ORM\Column(options: ['default' => 1])]
+    #[Groups(['reservation:read'])]
     private int $adults = 1;
 
     #[ORM\Column(options: ['default' => 0])]
+    #[Groups(['reservation:read'])]
     private int $children = 0;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2)]
+    #[Groups(['reservation:read'])]
     private string $rateXof;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2)]
+    #[Groups(['reservation:read'])]
     private string $totalXof;
 
     #[ORM\Column(length: 20, options: ['default' => 'direct'])]
+    #[Groups(['reservation:read'])]
     private string $source = ReservationSource::DIRECT->value;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2, nullable: true)]
+    #[Groups(['reservation:detail'])]
     private ?string $depositXof = null;
 
     #[ORM\Column(type: 'text', nullable: true)]
+    #[Groups(['reservation:read'])]
     private ?string $notes = null;
 
     #[ORM\Column(type: 'text', nullable: true)]
+    #[Groups(['reservation:read'])]
     private ?string $specialRequests = null;
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['reservation:read'])]
     private ?\DateTimeImmutable $checkedInAt = null;
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['reservation:read'])]
     private ?\DateTimeImmutable $checkedOutAt = null;
 
     #[ORM\Column]
+    #[Groups(['reservation:detail'])]
     private \DateTimeImmutable $createdAt;
 
     #[ORM\Column]
+    #[Groups(['reservation:detail'])]
     private \DateTimeImmutable $updatedAt;
 
     public function __construct()

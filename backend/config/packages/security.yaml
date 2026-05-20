@@ -71,6 +71,8 @@ security:
         - { path: ^/api/auth/refresh,    roles: PUBLIC_ACCESS }
         - { path: ^/api/auth/send-otp,   roles: PUBLIC_ACCESS }
         - { path: ^/api/auth/verify-otp, roles: PUBLIC_ACCESS }
+        - { path: ^/api, methods: [OPTIONS], roles: PUBLIC_ACCESS }
+        - { path: ^/superadmin, methods: [OPTIONS], roles: PUBLIC_ACCESS }
         - { path: ^/superadmin,          roles: ROLE_SUPER_ADMIN }
         - { path: ^/api,                 roles: IS_AUTHENTICATED_FULLY }
 

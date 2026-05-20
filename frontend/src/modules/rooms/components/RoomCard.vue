@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Room, RoomStatus } from '@/types/entities'
+import { formatCurrency } from '@/utils/currency'
+
+const router = useRouter()
 
 // ──────────────────────────────────────────────────────────────
 //  Props & Emits
@@ -49,7 +53,7 @@ const nextStatusLabels: Record<RoomStatus, string> = {
 </script>
 
 <template>
-  <div :class="['room-card', room.status]">
+  <div :class="['room-card', room.status]" style="cursor:pointer;" @click="router.push(`/rooms/${room.id}`)">
     <!-- Numéro + type -->
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
       <div>
@@ -77,7 +81,7 @@ const nextStatusLabels: Record<RoomStatus, string> = {
         {{ room.type.maxOccupancy }} pers.
       </span>
       <span class="t-mono" style="color:var(--pms-teal);">
-        {{ Number(room.type.baseRateXof).toLocaleString('fr-SN') }} F/nuit
+        {{ formatCurrency(room.type.baseRateXof, { perNight: true }) }}
       </span>
     </div>
 

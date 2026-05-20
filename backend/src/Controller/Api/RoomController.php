@@ -2,11 +2,14 @@
 
 namespace App\Controller\Api;
 
+use App\Hotel\Room\Application\DTO\UpdateRoomDTO;
 use App\Hotel\Room\Application\DTO\UpdateRoomStatusDTO;
+use App\Hotel\Room\Application\DTO\UpdateRoomTypeDTO;
 use App\Hotel\Room\Domain\Entity\Room;
 use App\Hotel\Room\Domain\Enum\RoomStatus;
 use App\Hotel\Room\Domain\Service\RoomService;
 use App\Hotel\Room\Infrastructure\Repository\RoomRepository;
+use App\Hotel\Room\Infrastructure\Repository\RoomTypeRepository;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -16,8 +19,9 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 class RoomController extends AbstractApiController
 {
     public function __construct(
-        private readonly RoomRepository    $roomRepository,
-        private readonly RoomService       $roomService,
+        private readonly RoomRepository     $roomRepository,
+        private readonly RoomTypeRepository $roomTypeRepository,
+        private readonly RoomService        $roomService,
         private readonly ValidatorInterface $validator,
     ) {}
 
@@ -67,6 +71,55 @@ class RoomController extends AbstractApiController
     }
 
     /**
+     * GET /api/rooms/types — Liste des types de chambre.
+     */
+    #[Route('/types', name: 'types_index', methods: ['GET'])]
+    public function types(): JsonResponse
+    {
+        return $this->jsonSuccess(
+            $this->roomTypeRepository->findBy([], ['sortOrder' => 'ASC']),
+            ['room:read']
+        );
+    }
+
+    /**
+     * PUT /api/rooms/types/{typeId} — Modifier un type (prix, capacité).
+     */
+    #[Route('/types/{typeId}', name: 'update_type', methods: ['PUT'])]
+    public function updateType(string $typeId, Request $request): JsonResponse
+    {
+        $type = $this->roomTypeRepository->find($typeId);
+        if (null === $type) {
+            return $this->jsonError('Type introuvable', 'NOT_FOUND', 404);
+        }
+
+        $data = json_decode($request->getContent(), true) ?? [];
+        $dto = new UpdateRoomTypeDTO();
+        $dto->name         = $data['name']         ?? null;
+        $dto->baseRateXof  = $data['baseRateXof']  ?? null;
+        $dto->maxOccupancy = $data['maxOccupancy'] ?? null;
+        $dto->description  = $data['description']  ?? null;
+
+        $errors = $this->validator->validate($dto);
+        if (count($errors) > 0) {
+            $messages = [];
+            foreach ($errors as $error) {
+                $messages[$error->getPropertyPath()] = $error->getMessage();
+            }
+            return $this->json([
+                'error'  => 'Données invalides',
+                'code'   => 'VALIDATION_ERROR',
+                'status' => 422,
+                'errors' => $messages,
+            ], 422);
+        }
+
+        $type = $this->roomService->updateType($type, $dto, $this->getStaffUser());
+
+        return $this->jsonSuccess($type, ['room:read']);
+    }
+
+    /**
      * GET /api/rooms/{id} — Détail d'une chambre.
      */
     #[Route('/{id}', name: 'show', methods: ['GET'])]
@@ -77,6 +130,44 @@ class RoomController extends AbstractApiController
         if (null === $room) {
             return $this->jsonError('Chambre introuvable', 'NOT_FOUND', 404);
         }
+
+        return $this->jsonSuccess($room, ['room:read', 'room:detail']);
+    }
+
+    /**
+     * PUT /api/rooms/{id} — Modifier une chambre.
+     */
+    #[Route('/{id}', name: 'update', methods: ['PUT'])]
+    public function update(string $id, Request $request): JsonResponse
+    {
+        $room = $this->roomRepository->findByIdWithRelations($id);
+        if (null === $room) {
+            return $this->jsonError('Chambre introuvable', 'NOT_FOUND', 404);
+        }
+
+        $data = json_decode($request->getContent(), true) ?? [];
+        $dto = new UpdateRoomDTO();
+        $dto->number   = $data['number']   ?? null;
+        $dto->typeId   = $data['typeId']   ?? null;
+        $dto->floorId  = $data['floorId']  ?? null;
+        $dto->notes    = $data['notes']    ?? null;
+        $dto->isActive = $data['isActive'] ?? null;
+
+        $errors = $this->validator->validate($dto);
+        if (count($errors) > 0) {
+            $messages = [];
+            foreach ($errors as $error) {
+                $messages[$error->getPropertyPath()] = $error->getMessage();
+            }
+            return $this->json([
+                'error'  => 'Données invalides',
+                'code'   => 'VALIDATION_ERROR',
+                'status' => 422,
+                'errors' => $messages,
+            ], 422);
+        }
+
+        $room = $this->roomService->updateRoom($room, $dto, $this->getStaffUser());
 
         return $this->jsonSuccess($room, ['room:read', 'room:detail']);
     }

@@ -15,22 +15,22 @@ class RoomType
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
-    #[Groups(['room:read'])]
+    #[Groups(['room:read', 'reservation:read', 'reservation:gantt'])]
     private Uuid $id;
 
     #[ORM\Column(length: 100)]
-    #[Groups(['room:read'])]
+    #[Groups(['room:read', 'reservation:read', 'reservation:gantt'])]
     private string $name;
 
     #[ORM\Column(type: 'text', nullable: true)]
     private ?string $description = null;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2)]
-    #[Groups(['room:read'])]
+    #[Groups(['room:read', 'reservation:read'])]
     private string $baseRateXof;
 
     #[ORM\Column(options: ['default' => 2])]
-    #[Groups(['room:read'])]
+    #[Groups(['room:read', 'reservation:read'])]
     private int $maxOccupancy = 2;
 
     #[ORM\Column(type: 'json', nullable: true)]

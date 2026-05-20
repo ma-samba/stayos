@@ -11,7 +11,24 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/modules/rooms/views/RoomsView.vue'),
     meta: { requiresAuth: true, title: 'Chambres' },
   },
-  // Autres modules à ajouter au fur et à mesure des sprints
+  {
+    path: '/rooms/:id',
+    name: 'room-detail',
+    component: () => import('@/modules/rooms/views/RoomDetailView.vue'),
+    meta: { requiresAuth: true, title: 'Détail chambre' },
+  },
+  {
+    path: '/reservations',
+    name: 'reservations',
+    component: () => import('@/modules/reservations/views/ReservationsView.vue'),
+    meta: { requiresAuth: true, title: 'Réservations' },
+  },
+  {
+    path: '/reservations/:id',
+    name: 'reservation-detail',
+    component: () => import('@/modules/reservations/views/ReservationDetailView.vue'),
+    meta: { requiresAuth: true, title: 'Détail réservation' },
+  },
 ]
 
 const router = createRouter({

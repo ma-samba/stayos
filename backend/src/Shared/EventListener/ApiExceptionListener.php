@@ -3,6 +3,8 @@
 namespace App\Shared\EventListener;
 
 use App\Shared\Exception\AlreadyExistsException;
+use App\Shared\Exception\BusinessRuleException;
+use App\Shared\Exception\ConflictException;
 use App\Shared\Exception\FeatureNotAvailableException;
 use App\Shared\Exception\OtpInvalidException;
 use App\Shared\Exception\TenantNotFoundException;
@@ -42,6 +44,8 @@ class ApiExceptionListener
             $exception instanceof TenantSuspendedException     => [402, 'TENANT_SUSPENDED', $exception->getMessage()],
             $exception instanceof OtpInvalidException          => [422, 'VALIDATION_ERROR', $exception->getMessage()],
             $exception instanceof AlreadyExistsException       => [409, 'ALREADY_EXISTS',   $exception->getMessage()],
+            $exception instanceof ConflictException              => [409, 'CONFLICT',          $exception->getMessage()],
+            $exception instanceof BusinessRuleException          => [422, 'BUSINESS_RULE',    $exception->getMessage()],
             $exception instanceof FeatureNotAvailableException => [403, 'PLAN_LIMIT',        $exception->getMessage()],
             $exception instanceof AccessDeniedHttpException    => [403, 'ACCESS_DENIED',     'Accès refusé.'],
             $exception instanceof NotFoundHttpException        => [404, 'NOT_FOUND',         'Ressource introuvable.'],

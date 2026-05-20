@@ -3,6 +3,7 @@
 namespace App\Hotel\Reservation\Infrastructure\Repository;
 
 use App\Hotel\Reservation\Domain\Entity\Reservation;
+use App\Hotel\Reservation\Domain\Enum\ReservationStatus;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -60,5 +61,90 @@ class ReservationRepository extends ServiceEntityRepository
         }
 
         return (int) $qb->getQuery()->getSingleScalarResult() === 0;
+    }
+
+    /**
+     * Charge une réservation par UUID avec guest, room et roomType (eager loading).
+     */
+    public function findByIdWithRelations(string $id): ?Reservation
+    {
+        return $this->createQueryBuilder('r')
+            ->addSelect('g', 'room', 'rt')
+            ->leftJoin('r.guest', 'g')
+            ->leftJoin('r.room', 'room')
+            ->leftJoin('room.type', 'rt')
+            ->where('r.id = :id')
+            ->setParameter('id', $id)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
+
+    /**
+     * Retourne la réservation en cours (CHECKED_IN) pour une chambre.
+     */
+    public function findCheckedInByRoom(string $roomId): ?Reservation
+    {
+        return $this->createQueryBuilder('r')
+            ->addSelect('g', 'room')
+            ->leftJoin('r.guest', 'g')
+            ->leftJoin('r.room', 'room')
+            ->where('r.room = :roomId')
+            ->andWhere('r.status = :status')
+            ->setParameter('roomId', $roomId)
+            ->setParameter('status', ReservationStatus::CHECKED_IN->value)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
+
+    /**
+     * Retourne les réservations pour le planning Gantt.
+     * Filtre par période, eager load room + roomType.
+     */
+    public function findForGantt(\DateTimeImmutable $from, \DateTimeImmutable $to): array
+    {
+        return $this->createQueryBuilder('r')
+            ->addSelect('room', 'rt')
+            ->leftJoin('r.room', 'room')
+            ->leftJoin('room.type', 'rt')
+            ->where('r.checkIn < :to')
+            ->andWhere('r.checkOut > :from')
+            ->andWhere('r.status IN (:visibleStatuses)')
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->setParameter('visibleStatuses', [
+                ReservationStatus::CONFIRMED->value,
+                ReservationStatus::CHECKED_IN->value,
+                ReservationStatus::CHECKED_OUT->value,
+            ])
+            ->orderBy('room.number', 'ASC')
+            ->addOrderBy('r.checkIn', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Génère un numéro de confirmation unique : RES-YYYY-NNNNN
+     */
+    public function generateConfirmationNumber(): string
+    {
+        $year = (new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar')))->format('Y');
+        $prefix = 'RES-' . $year . '-';
+
+        $lastNumber = $this->createQueryBuilder('r')
+            ->select('r.confirmationNumber')
+            ->where('r.confirmationNumber LIKE :prefix')
+            ->setParameter('prefix', $prefix . '%')
+            ->orderBy('r.confirmationNumber', 'DESC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+
+        if ($lastNumber === null) {
+            return $prefix . '00001';
+        }
+
+        $sequence = (int) substr($lastNumber['confirmationNumber'], strlen($prefix));
+
+        return $prefix . str_pad((string) ($sequence + 1), 5, '0', STR_PAD_LEFT);
     }
 }

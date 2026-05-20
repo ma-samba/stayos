@@ -13,18 +13,18 @@ class GuestRepository extends ServiceEntityRepository
         parent::__construct($registry, Guest::class);
     }
 
-    /**
-     * Recherche fulltext sur nom, prénom, email, numéro de document.
-     */
-    public function search(string $query, int $limit = 10): array
+    public function searchByQuery(string $query): array
     {
-        $q = '%' . $query . '%';
+        $like = '%' . strtolower($query) . '%';
 
         return $this->createQueryBuilder('g')
-            ->where('g.firstName LIKE :q OR g.lastName LIKE :q OR g.email LIKE :q OR g.documentNumber LIKE :q')
-            ->setParameter('q', $q)
-            ->setMaxResults($limit)
+            ->where('LOWER(g.firstName) LIKE :q')
+            ->orWhere('LOWER(g.lastName) LIKE :q')
+            ->orWhere('LOWER(g.email) LIKE :q')
+            ->orWhere('g.phone LIKE :q')
+            ->setParameter('q', $like)
             ->orderBy('g.lastName', 'ASC')
+            ->setMaxResults(10)
             ->getQuery()
             ->getResult();
     }
