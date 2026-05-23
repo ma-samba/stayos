@@ -2,7 +2,7 @@
 
 namespace App\Message;
 
-/** @todo Sprint 4 — KnpSnappy PDF generation */
+/** @todo Sprint 4 — Async PDF generation via Dompdf */
 final class GenerateInvoicePdfMessage
 {
     public function __construct(

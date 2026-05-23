@@ -20,21 +20,21 @@ class Reservation
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
-    #[Groups(['reservation:read', 'reservation:gantt'])]
+    #[Groups(['reservation:read', 'reservation:gantt', 'invoice:detail'])]
     private Uuid $id;
 
     #[ORM\Column(length: 30, unique: true)]
-    #[Groups(['reservation:read', 'reservation:gantt'])]
+    #[Groups(['reservation:read', 'reservation:gantt', 'invoice:detail'])]
     private string $confirmationNumber;
 
     #[ORM\ManyToOne(targetEntity: Guest::class)]
     #[ORM\JoinColumn(nullable: false)]
-    #[Groups(['reservation:read'])]
+    #[Groups(['reservation:read', 'invoice:detail'])]
     private Guest $guest;
 
     #[ORM\ManyToOne(targetEntity: Room::class)]
     #[ORM\JoinColumn(nullable: false)]
-    #[Groups(['reservation:read', 'reservation:gantt'])]
+    #[Groups(['reservation:read', 'reservation:gantt', 'invoice:detail'])]
     private Room $room;
 
     #[ORM\Column(length: 20, options: ['default' => 'confirmed'])]
@@ -42,11 +42,11 @@ class Reservation
     private string $status = ReservationStatus::CONFIRMED->value;
 
     #[ORM\Column(type: 'date_immutable')]
-    #[Groups(['reservation:read', 'reservation:gantt'])]
+    #[Groups(['reservation:read', 'reservation:gantt', 'invoice:detail'])]
     private \DateTimeImmutable $checkIn;
 
     #[ORM\Column(type: 'date_immutable')]
-    #[Groups(['reservation:read', 'reservation:gantt'])]
+    #[Groups(['reservation:read', 'reservation:gantt', 'invoice:detail'])]
     private \DateTimeImmutable $checkOut;
 
     #[ORM\Column(options: ['default' => 1])]

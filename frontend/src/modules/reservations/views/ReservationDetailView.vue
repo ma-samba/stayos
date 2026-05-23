@@ -2,17 +2,19 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useReservationsStore } from '@/stores/reservations.store'
-import type { Reservation, ReservationStatus } from '@/types/entities'
+import type { Reservation, ReservationStatus, Invoice } from '@/types/entities'
 import { formatCurrency } from '@/utils/currency'
 import api from '@/services/api.service'
 import type { ApiSuccess } from '@/types/entities'
+import { invoiceService } from '@/services/invoice.service'
 import ReservationForm from '@/modules/reservations/components/ReservationForm.vue'
 
 const route  = useRoute()
 const router = useRouter()
 const store  = useReservationsStore()
 
-const reservation = ref<Reservation | null>(null)
+const reservation    = ref<Reservation | null>(null)
+const linkedInvoice  = ref<Invoice | null>(null)
 const loading = ref(true)
 const error   = ref<string | null>(null)
 
@@ -22,6 +24,11 @@ async function load(): Promise<void> {
   try {
     const { data } = await api.get<ApiSuccess<Reservation>>(`/reservations/${route.params.id}`)
     reservation.value = data.data
+
+    // Chercher la facture associee (check-in ou check-out)
+    if (reservation.value.status === 'checked_in' || reservation.value.status === 'checked_out') {
+      linkedInvoice.value = await invoiceService.byReservation(reservation.value.id)
+    }
   } catch {
     error.value = 'Réservation introuvable'
   } finally {
@@ -109,6 +116,13 @@ onMounted(load)
             @click="showEditForm = true"
           >
             <i class="ti ti-edit"></i> Modifier
+          </button>
+          <button
+            v-if="linkedInvoice"
+            class="btn btn-secondary"
+            @click="router.push(`/invoices/${linkedInvoice.id}`)"
+          >
+            <i class="ti ti-file-invoice"></i> Voir la facture
           </button>
           <span :class="['badge', statusBadgeClass[reservation.status]]">
             <span class="badge-dot"></span>{{ statusLabels[reservation.status] }}

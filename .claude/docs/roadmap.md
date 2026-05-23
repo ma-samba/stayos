@@ -5,9 +5,9 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **Sprint 7 — Facturation & paiements**
-- Dernière mise à jour : 20 mai 2026
-- Sprints terminés : 1, 2, 3, 4, 5, 6
+- Sprint courant : **Sprint 8 — Housekeeping**
+- Dernière mise à jour : 22 mai 2026
+- Sprints terminés : 1, 2, 3, 4, 5, 6, 7
 
 ---
 
@@ -193,31 +193,41 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### 🔄 Sprint 7 — Facturation & paiements (en cours)
+### ✅ Sprint 7 — Facturation & paiements
 **Objectif** : émettre une facture, paiement Paydunya, PDF envoyé par email.
 
 **Backend**
-- [ ] `InvoiceService::generateFromReservation()` — lignes auto + TVA 18%
-- [ ] `InvoiceService::generatePdf()` — KnpSnappy/Dompdf → Uploadcare
-- [ ] `InvoiceService::recordPayment()` — enregistre + calcule solde
-- [ ] `PaydunyaService` — createCheckout, verifyPayment, verifyWebhookSignature
-- [ ] `PaydunyaWebhookController` — paiement confirmé → Mercure
-- [ ] `EmailService::sendInvoice()` — PDF en PJ via Mailjet
-- [ ] Template email facture (Twig)
+- [x] `InvoiceService::generateFromReservation()` — lignes auto + TVA 18%
+- [x] `InvoiceService::generatePdf()` — Dompdf (remplace KnpSnappy, plus simple à déployer)
+- [x] `InvoiceService::recordPayment()` — enregistre + calcule solde (bcmath)
+- [x] `PaydunyaService` — createCheckout, verifyPayment via gateway pattern
+- [x] `PaydunyaWebhookController` — IPN multi-tenant + Mercure
+- [x] `EmailService::sendInvoice()` — PDF en PJ via Mailjet
+- [x] Template email facture (Twig)
 
 **Frontend**
-- [ ] `BillingView.vue` — liste factures
-- [ ] `InvoiceDetailView.vue` — détail + paiements
-- [ ] `InvoicePreview.vue` — aperçu avant envoi
-- [ ] `PaymentForm.vue` — Wave, OM, espèces, carte
-- [ ] `CashRegister.vue` — caisse du jour
+- [x] `BillingView.vue` — liste factures
+- [x] `InvoiceDetailView.vue` — détail + paiements reçus
+- [x] `InvoicePreview.vue` — aperçu avant envoi
+- [x] `PaymentForm.vue` — Wave, OM, espèces, carte
+- [x] `CashRegister.vue` — caisse du jour
 
 **Tests**
-- [ ] `InvoiceTest` — TVA 18% correcte
-- [ ] `InvoiceTest` — solde recalculé après paiement partiel
-- [ ] `PaydunyaWebhookTest` — signature valide → paiement enregistré
-- [ ] `PaydunyaWebhookTest` — signature invalide → 401
-- [ ] `PaydunyaWebhookTest` — idempotence (pas de doublon)
+- [x] `InvoiceTest` — TVA 18% correcte + soldes bcmath (15 tests, 34 assertions)
+- [x] `InvoiceServiceTest` — issue(), recordPayment(), transitions statut (6 tests, 15 assertions)
+- [x] `PaydunyaWebhookHandlerTest` — IPN complet (11 tests, 59 assertions)
+- [x] `InvoiceControllerTest` — auth gating + IPN public (10 tests fonctionnels)
+
+**Ajouts notables (Sprint 7)**
+- [x] Architecture gateway : `PaymentGatewayInterface` + `PaymentGatewayRegistry` + `PaymentConfirmation` — abstraction multi-passerelle
+- [x] IPN multi-tenant : résolution tenant via query param `?tenant=slug`, switch search_path, restore après traitement
+- [x] Idempotence IPN : verrouillage pessimiste (`LockMode::PESSIMISTIC_WRITE`) dans `wrapInTransaction` — prévient les doublons sur retries Paydunya
+- [x] Anti-fraude : vérification montant serveur via `gateway->confirmPayment()` (source de vérité), rejet si montant diverge
+- [x] Sérialisation `getCompletedPayments()` — filtre PAID uniquement via `#[SerializedName('payments')]`, les PENDING/FAILED ne fuient jamais vers le frontend
+- [x] Soldes bcmath (`getPaidXof`, `getBalanceXof`, `isFullyPaid`) — jamais de float pour les montants XOF
+- [x] `resolvePaymentMethod()` — résolution Wave/OrangeMoney/Card depuis le payload brut Paydunya
+- [x] Dompdf au lieu de KnpSnappy — plus simple, pas de dépendance wkhtmltopdf
+- [x] Formatage dates défensif (frontend) — `null`, `undefined`, `Invalid Date` → `—`
 
 **Livrable** : facturation complète, paiement Paydunya, PDF par email
 

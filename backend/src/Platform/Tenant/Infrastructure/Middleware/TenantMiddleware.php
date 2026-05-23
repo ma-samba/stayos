@@ -31,6 +31,7 @@ class TenantMiddleware implements EventSubscriberInterface
     private const EXCLUDED_PREFIXES = [
         '/api/health',
         '/api/onboarding/register',
+        '/api/payments/paydunya/ipn',
     ];
 
     public function __construct(

@@ -20,43 +20,37 @@ Erreur inattendue          → Sentry → JsonResponse générique 500
 ```php
 // src/Shared/EventListener/ApiExceptionListener.php
 // Transforme toutes les exceptions en JsonResponse standardisée
+// Intercepte les routes /api et /superadmin
 
+#[AsEventListener(event: KernelEvents::EXCEPTION)]
 class ApiExceptionListener
 {
-    public function onKernelException(ExceptionEvent $event): void
+    public function __invoke(ExceptionEvent $event): void
     {
         $exception = $event->getThrowable();
-        $request   = $event->getRequest();
 
-        // Ne traiter que les routes /api
-        if (!str_starts_with($request->getPathInfo(), '/api')) return;
-
-        [$status, $code, $message] = match(true) {
-            $exception instanceof ValidationException      => [422, 'VALIDATION_ERROR', $exception->getMessage()],
-            $exception instanceof NotFoundHttpException    => [404, 'NOT_FOUND', 'Ressource introuvable'],
-            $exception instanceof AccessDeniedException    => [403, 'ACCESS_DENIED', 'Accès refusé'],
-            $exception instanceof TenantNotFoundException  => [404, 'TENANT_NOT_FOUND', 'Hôtel introuvable'],
-            $exception instanceof TenantSuspendedException => [402, 'TENANT_SUSPENDED', 'Abonnement suspendu'],
-            $exception instanceof FeatureNotAvailableException => [403, 'PLAN_LIMIT', 'Fonctionnalité non disponible dans votre plan'],
-            $exception instanceof ConflictException        => [409, 'CONFLICT', $exception->getMessage()],
-            $exception instanceof TooManyRequestsHttpException => [429, 'RATE_LIMITED', 'Trop de requêtes. Réessayez dans un moment.'],
-            $exception instanceof PaydunyaException        => [502, 'PAYMENT_GATEWAY_ERROR', 'Erreur de la passerelle de paiement'],
-            $exception instanceof ExternalServiceException => [503, 'EXTERNAL_SERVICE_ERROR', 'Service externe temporairement indisponible'],
-            default => [500, 'INTERNAL_ERROR', 'Une erreur interne est survenue'],
+        [$status, $code, $message] = match (true) {
+            $exception instanceof TenantNotFoundException      => [404, 'NOT_FOUND',        $exception->getMessage()],
+            $exception instanceof TenantSuspendedException     => [402, 'TENANT_SUSPENDED', $exception->getMessage()],
+            $exception instanceof OtpInvalidException          => [422, 'VALIDATION_ERROR', $exception->getMessage()],
+            $exception instanceof AlreadyExistsException       => [409, 'ALREADY_EXISTS',   $exception->getMessage()],
+            $exception instanceof ConflictException            => [409, 'CONFLICT',         $exception->getMessage()],
+            $exception instanceof BusinessRuleException        => [422, 'BUSINESS_RULE',    $exception->getMessage()],
+            $exception instanceof FeatureNotAvailableException => [403, 'PLAN_LIMIT',       $exception->getMessage()],
+            $exception instanceof AccessDeniedHttpException    => [403, 'ACCESS_DENIED',    'Accès refusé.'],
+            $exception instanceof NotFoundHttpException        => [404, 'NOT_FOUND',        'Ressource introuvable.'],
+            $exception instanceof TooManyRequestsHttpException => [429, 'RATE_LIMITED',     'Trop de requêtes. Réessayez dans un moment.'],
+            $exception instanceof HttpExceptionInterface       => [$exception->getStatusCode(), 'HTTP_ERROR', $exception->getMessage()],
+            default                                            => [500, 'INTERNAL_ERROR',   'Une erreur interne est survenue.'],
         };
 
-        // Logger les 500 dans Sentry
+        // Logger les erreurs 500 inattendues
         if ($status === 500) {
-            $this->logger->error('Unexpected error', [
-                'exception' => $exception->getMessage(),
-                'trace'     => $exception->getTraceAsString(),
-            ]);
+            $this->logger->error('Unexpected API error', [...]);
         }
 
         $event->setResponse(new JsonResponse([
-            'error'  => $message,
-            'code'   => $code,
-            'status' => $status,
+            'error' => $message, 'code' => $code, 'status' => $status,
         ], $status));
     }
 }
@@ -141,19 +135,40 @@ class UploadcareService
 
 ---
 
-## Exceptions personnalisées
+## Hiérarchie des exceptions applicatives
 
-```php
-// src/Shared/Exception/
-├── TenantNotFoundException.php
-├── TenantSuspendedException.php
-├── FeatureNotAvailableException.php
-├── ConflictException.php           // Double réservation
-├── PaydunyaException.php           // Erreur passerelle paiement
-├── ExternalServiceException.php    // Erreur service externe générique
-├── OtpInvalidException.php
-├── OtpExpiredException.php
-└── PlanLimitException.php          // Limite du plan atteinte
+Le mapping ci-dessous correspond **exactement** au `match()` de
+`ApiExceptionListener` (`src/Shared/EventListener/ApiExceptionListener.php`).
+
+| Exception | Code API | Status | Quand l'utiliser |
+|---|---|---|---|
+| `TenantNotFoundException` | `NOT_FOUND` | 404 | Subdomain inconnu ou tenant introuvable |
+| `TenantSuspendedException` | `TENANT_SUSPENDED` | 402 | Tenant suspendu (abonnement impayé) |
+| `OtpInvalidException` | `VALIDATION_ERROR` | 422 | Code OTP invalide ou expiré |
+| `AlreadyExistsException` | `ALREADY_EXISTS` | 409 | Doublon (email client déjà utilisé, etc.) |
+| `ConflictException` | `CONFLICT` | 409 | Conflit de ressource (chevauchement de réservation, etc.) |
+| `BusinessRuleException` | `BUSINESS_RULE` | 422 | Règle métier violée (transition d'état interdite, action impossible dans l'état courant) |
+| `FeatureNotAvailableException` | `PLAN_LIMIT` | 403 | Fonctionnalité hors plan d'abonnement |
+| `AccessDeniedHttpException` (Symfony) | `ACCESS_DENIED` | 403 | Droits insuffisants (RBAC) |
+| `NotFoundHttpException` (Symfony) | `NOT_FOUND` | 404 | Ressource introuvable (ParamConverter, etc.) |
+| `TooManyRequestsHttpException` (Symfony) | `RATE_LIMITED` | 429 | Limite de requêtes atteinte |
+| Autre `HttpExceptionInterface` | `HTTP_ERROR` | variable | Erreur HTTP Symfony non spécifique |
+| (toute autre exception) | `INTERNAL_ERROR` | 500 | Erreur non gérée — **Sentry alerté** |
+
+**Ne jamais lever `\LogicException`, `\RuntimeException` ou `\Exception` brute
+pour une erreur métier prévisible : elle tombera en 500 `INTERNAL_ERROR`.
+Utiliser `BusinessRuleException` (422) ou `ConflictException` (409) selon le cas.**
+
+### Fichiers réels (src/Shared/Exception/)
+
+```
+TenantNotFoundException.php
+TenantSuspendedException.php
+OtpInvalidException.php
+AlreadyExistsException.php
+ConflictException.php
+BusinessRuleException.php
+FeatureNotAvailableException.php
 ```
 
 ---
@@ -193,12 +208,13 @@ transports:
 
 const ERROR_MESSAGES: Record<string, string> = {
     'VALIDATION_ERROR':         'Les données saisies sont invalides.',
+    'BUSINESS_RULE':            'Action impossible dans l\'état actuel.',
     'NOT_FOUND':                'Cette ressource n\'existe pas ou a été supprimée.',
     'ACCESS_DENIED':            'Vous n\'avez pas les droits pour cette action.',
     'PLAN_LIMIT':               'Cette fonctionnalité nécessite un plan supérieur.',
+    'ALREADY_EXISTS':           'Cette ressource existe déjà.',
     'CONFLICT':                 'Cette chambre est déjà réservée pour ces dates.',
     'RATE_LIMITED':             'Trop de tentatives. Veuillez patienter.',
-    'PAYMENT_GATEWAY_ERROR':    'La passerelle de paiement est indisponible. Réessayez.',
     'TENANT_SUSPENDED':         'Votre abonnement est suspendu. Contactez le support.',
     'INTERNAL_ERROR':           'Une erreur est survenue. Notre équipe a été notifiée.',
 }

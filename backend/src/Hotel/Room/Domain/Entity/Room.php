@@ -18,7 +18,7 @@ class Room
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
-    #[Groups(['room:read', 'reservation:read', 'reservation:gantt'])]
+    #[Groups(['room:read', 'reservation:read', 'reservation:gantt', 'invoice:detail'])]
     private Uuid $id;
 
     #[ORM\ManyToOne(targetEntity: Floor::class)]
@@ -28,11 +28,11 @@ class Room
 
     #[ORM\ManyToOne(targetEntity: RoomType::class)]
     #[ORM\JoinColumn(nullable: false)]
-    #[Groups(['room:read', 'reservation:read', 'reservation:gantt'])]
+    #[Groups(['room:read', 'reservation:read', 'reservation:gantt', 'invoice:detail'])]
     private RoomType $type;
 
     #[ORM\Column(length: 20, unique: true)]
-    #[Groups(['room:read', 'reservation:read', 'reservation:gantt'])]
+    #[Groups(['room:read', 'reservation:read', 'reservation:gantt', 'invoice:detail'])]
     private string $number;
 
     #[ORM\Column(length: 20, options: ['default' => 'available'])]

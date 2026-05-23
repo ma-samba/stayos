@@ -16,23 +16,23 @@ class Guest
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
-    #[Groups(['reservation:read', 'guest:read'])]
+    #[Groups(['reservation:read', 'guest:read', 'invoice:detail'])]
     private Uuid $id;
 
     #[ORM\Column(length: 100)]
-    #[Groups(['reservation:read', 'guest:read'])]
+    #[Groups(['reservation:read', 'guest:read', 'invoice:detail'])]
     private string $firstName;
 
     #[ORM\Column(length: 100)]
-    #[Groups(['reservation:read', 'guest:read'])]
+    #[Groups(['reservation:read', 'guest:read', 'invoice:detail'])]
     private string $lastName;
 
     #[ORM\Column(length: 180, nullable: true)]
-    #[Groups(['reservation:read', 'guest:read'])]
+    #[Groups(['reservation:read', 'guest:read', 'invoice:detail'])]
     private ?string $email = null;
 
     #[ORM\Column(length: 20, nullable: true)]
-    #[Groups(['reservation:read', 'guest:read'])]
+    #[Groups(['reservation:read', 'guest:read', 'invoice:detail'])]
     private ?string $phone = null;
 
     #[ORM\Column(length: 2, nullable: true)]

@@ -6,6 +6,9 @@ namespace App\Platform\Tenant\Domain\Migration;
 
 use DoctrineMigrations\Tenant\Version20260514000000CreateHotelTables;
 use DoctrineMigrations\Tenant\Version20260520140000AddGuestDocumentUrl;
+use DoctrineMigrations\Tenant\Version20260520150000AddPaymentGatewayFields;
+use DoctrineMigrations\Tenant\Version20260520160000AddPaymentCallbackSecret;
+use DoctrineMigrations\Tenant\Version20260520170000UpdatePaymentMethodCheck;
 
 /**
  * Registre ordonné de toutes les migrations tenant.
@@ -22,6 +25,9 @@ class TenantMigrationRegistry
         $this->migrations = [
             new Version20260514000000CreateHotelTables(),
             new Version20260520140000AddGuestDocumentUrl(),
+            new Version20260520150000AddPaymentGatewayFields(),
+            new Version20260520160000AddPaymentCallbackSecret(),
+            new Version20260520170000UpdatePaymentMethodCheck(),
         ];
     }
 

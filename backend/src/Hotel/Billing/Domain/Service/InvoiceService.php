@@ -1,0 +1,150 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Hotel\Billing\Domain\Service;
+
+use App\Hotel\Billing\Application\DTO\RecordPaymentDTO;
+use App\Hotel\Billing\Domain\Entity\Invoice;
+use App\Hotel\Billing\Domain\Entity\Payment;
+use App\Hotel\Billing\Domain\Enum\InvoiceStatus;
+use App\Hotel\Billing\Domain\Enum\PaymentMethod;
+use App\Hotel\Billing\Domain\Enum\PaymentStatus;
+use App\Hotel\Property\Domain\Entity\HotelProfile;
+use App\Shared\Exception\BusinessRuleException;
+use App\Hotel\Shared\Domain\Service\AuditService;
+use App\Platform\Auth\Domain\Entity\StaffUser;
+use Doctrine\ORM\EntityManagerInterface;
+use Dompdf\Dompdf;
+use Dompdf\Options as DompdfOptions;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Target;
+use Twig\Environment as Twig;
+
+class InvoiceService
+{
+    public function __construct(
+        private readonly EntityManagerInterface  $entityManager,
+        private readonly AuditService            $auditService,
+        private readonly Twig                    $twig,
+        #[Target('business')] private readonly LoggerInterface $logger,
+    ) {}
+
+    /**
+     * Passe une facture draft en issued (émise).
+     */
+    public function issue(Invoice $invoice, StaffUser $staff): void
+    {
+        if ($invoice->getStatusEnum() !== InvoiceStatus::DRAFT) {
+            throw new BusinessRuleException('Seule une facture draft peut être émise.');
+        }
+
+        $invoice->setStatusEnum(InvoiceStatus::ISSUED);
+        $invoice->setIssuedAt(new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar')));
+
+        $this->auditService->log(
+            'invoice.issued',
+            'Invoice',
+            (string) $invoice->getId(),
+            ['status' => InvoiceStatus::DRAFT->value],
+            ['status' => InvoiceStatus::ISSUED->value],
+            $staff,
+        );
+
+        $this->entityManager->flush();
+
+        $this->logger->info('Invoice issued', [
+            'invoice_id' => (string) $invoice->getId(),
+            'number'     => $invoice->getNumber(),
+            'totalXof'   => $invoice->getTotalXof(),
+        ]);
+    }
+
+    /**
+     * Enregistre un paiement manuel sur une facture.
+     * Recalcule le statut (PAID si solde = 0, PARTIAL sinon).
+     */
+    public function recordPayment(Invoice $invoice, RecordPaymentDTO $dto, StaffUser $staff): Payment
+    {
+        if ($invoice->getStatusEnum() === InvoiceStatus::CANCELLED) {
+            throw new BusinessRuleException(
+                'Impossible d\'enregistrer un paiement sur une facture annulée.'
+            );
+        }
+
+        $method = PaymentMethod::from($dto->method);
+
+        $payment = new Payment();
+        $payment->setInvoice($invoice);
+        $payment->setMethodEnum($method);
+        $payment->setAmountXof($dto->amountXof);
+        $payment->setStatusEnum(PaymentStatus::PAID);
+        $payment->setReference($dto->reference);
+        $payment->setNotes($dto->notes);
+        $payment->setPaidAt(new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar')));
+
+        $invoice->addPayment($payment);
+        $this->entityManager->persist($payment);
+
+        // Recalcule le statut de la facture
+        $previousStatus = $invoice->getStatus();
+        if ($invoice->isFullyPaid()) {
+            $invoice->setStatusEnum(InvoiceStatus::PAID);
+        } else {
+            $invoice->setStatusEnum(InvoiceStatus::PARTIAL);
+        }
+
+        $this->auditService->log(
+            'payment.recorded',
+            'Payment',
+            'new',
+            null,
+            [
+                'method'    => $method->value,
+                'amountXof' => $dto->amountXof,
+                'invoice'   => $invoice->getNumber(),
+            ],
+            $staff,
+        );
+
+        $this->entityManager->flush();
+
+        $this->logger->info('Payment recorded', [
+            'invoice_id'     => (string) $invoice->getId(),
+            'invoice_number' => $invoice->getNumber(),
+            'method'         => $method->value,
+            'amountXof'      => $dto->amountXof,
+            'new_status'     => $invoice->getStatus(),
+            'previous_status'=> $previousStatus,
+        ]);
+
+        return $payment;
+    }
+
+    /**
+     * Genere le PDF d'une facture via Dompdf / Twig.
+     *
+     * @return string Le contenu binaire du PDF
+     */
+    public function generatePdf(Invoice $invoice): string
+    {
+        $hotel = $this->entityManager->getRepository(HotelProfile::class)->findOneBy([]);
+
+        $html = $this->twig->render('billing/invoice_pdf.html.twig', [
+            'invoice' => $invoice,
+            'hotel'   => $hotel,
+        ]);
+
+        $options = new DompdfOptions();
+        $options->set('isRemoteEnabled', false);
+        $options->set('defaultFont', 'Helvetica');
+        $options->set('isHtml5ParserEnabled', true);
+
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->render();
+
+        return $dompdf->output();
+    }
+}

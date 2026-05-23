@@ -25,6 +25,23 @@
 - Dates en `\DateTimeImmutable`
 - Statuts via **enums PHP 8.1** (backed by string)
 
+## Contraintes CHECK SQL sur les colonnes-enum
+
+Ces colonnes ont une contrainte CHECK PostgreSQL (définie dans
+`CreateHotelTables` + migrations tenant ultérieures). Toute nouvelle
+valeur d'enum PHP nécessite une migration tenant qui recrée la
+contrainte, sinon l'INSERT est rejeté en SQLSTATE 23514.
+
+| Table.colonne | Valeurs autorisées (CHECK) |
+|---|---|
+| `rooms.status` | `available`, `occupied`, `cleaning`, `maintenance`, `out_of_order` |
+| `reservations.status` | `confirmed`, `pending`, `checked_in`, `checked_out`, `cancelled`, `no_show` |
+| `reservations.source` | `direct`, `booking_com`, `airbnb`, `expedia`, `walk_in` |
+| `invoices.status` | `draft`, `issued`, `paid`, `partial`, `cancelled` |
+| `payments.method` | `cash`, `wave`, `orange_money`, `card`, `bank_transfer`, `mobile_money`, `ota` |
+| `cleaning_tasks.status` | `pending`, `in_progress`, `done`, `inspected`, `skipped` |
+| `cleaning_tasks.type` | `departure`, `stay_over`, `inspection`, `maintenance` |
+
 ---
 
 ## SCHEMA PUBLIC — Entités Platform

@@ -109,6 +109,56 @@ export interface UpdateReservationPayload {
 }
 
 // ──────────────────────────────────────────────────────────────
+//  Facturation
+// ──────────────────────────────────────────────────────────────
+
+export type InvoiceStatus = 'draft' | 'issued' | 'partial' | 'paid' | 'cancelled'
+export type PaymentStatus = 'init' | 'pending' | 'paid' | 'failed' | 'cancelled'
+
+export interface Payment {
+  id: string
+  method: string
+  amountXof: string
+  status: string
+  reference: string | null
+  gatewayName: string | null
+  paidAt: string | null
+  processedAt: string | null
+}
+
+export interface InvoiceLine {
+  id: string
+  label: string
+  quantity: number
+  unitPriceXof: string
+  totalXof: string
+}
+
+export interface Invoice {
+  id: string
+  number: string
+  status: InvoiceStatus
+  subtotalXof: string
+  taxRate: string
+  taxXof: string
+  totalXof: string
+  paidXof: string
+  balanceXof: string
+  issuedAt: string | null
+  dueAt: string | null
+  notes: string | null
+  reservation?: {
+    id: string
+    confirmationNumber: string
+    guest?: Guest
+    room?: { id: string; number: string; type?: { name: string } }
+  }
+  lines?: InvoiceLine[]
+  payments?: Payment[]
+  createdAt: string
+}
+
+// ──────────────────────────────────────────────────────────────
 //  Réponses API standard
 // ──────────────────────────────────────────────────────────────
 

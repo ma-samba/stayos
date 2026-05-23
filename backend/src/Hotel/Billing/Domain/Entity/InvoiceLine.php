@@ -4,6 +4,7 @@ namespace App\Hotel\Billing\Domain\Entity;
 
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
+use Symfony\Component\Serializer\Annotation\Groups;
 use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity]
@@ -14,22 +15,27 @@ class InvoiceLine
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
+    #[Groups(['invoice:detail'])]
     private Uuid $id;
 
-    #[ORM\ManyToOne(targetEntity: Invoice::class)]
+    #[ORM\ManyToOne(targetEntity: Invoice::class, inversedBy: 'lines')]
     #[ORM\JoinColumn(nullable: false)]
     private Invoice $invoice;
 
     #[ORM\Column(length: 255)]
+    #[Groups(['invoice:detail'])]
     private string $label;
 
     #[ORM\Column(options: ['default' => 1])]
+    #[Groups(['invoice:detail'])]
     private int $quantity = 1;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2)]
+    #[Groups(['invoice:detail'])]
     private string $unitPriceXof;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2)]
+    #[Groups(['invoice:detail'])]
     private string $totalXof;
 
     #[ORM\Column(options: ['default' => 0])]

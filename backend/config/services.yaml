@@ -1,4 +1,6 @@
 parameters:
+    default_frontend_url: 'http://localhost:5173'
+    default_backend_url: 'http://localhost:8080'
 
 services:
     _defaults:
@@ -30,6 +32,16 @@ services:
     App\DataFixtures\Purger\TenantAwarePurgerFactory:
         tags:
             - { name: doctrine.fixtures.purger_factory, alias: tenant_aware }
+
+    # PaymentGatewayRegistry — collecte tous les gateways taggés
+    App\Hotel\Billing\Domain\Gateway\PaymentGatewayRegistry:
+        arguments:
+            $gateways: !tagged_iterator app.payment_gateway
+
+    # Tagger automatiquement toutes les implémentations de PaymentGatewayInterface
+    _instanceof:
+        App\Hotel\Billing\Domain\Gateway\PaymentGatewayInterface:
+            tags: ['app.payment_gateway']
 
     # Service Redis injecté dans HealthController
     Redis:

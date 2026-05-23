@@ -15,11 +15,11 @@ class RoomType
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
-    #[Groups(['room:read', 'reservation:read', 'reservation:gantt'])]
+    #[Groups(['room:read', 'reservation:read', 'reservation:gantt', 'invoice:detail'])]
     private Uuid $id;
 
     #[ORM\Column(length: 100)]
-    #[Groups(['room:read', 'reservation:read', 'reservation:gantt'])]
+    #[Groups(['room:read', 'reservation:read', 'reservation:gantt', 'invoice:detail'])]
     private string $name;
 
     #[ORM\Column(type: 'text', nullable: true)]

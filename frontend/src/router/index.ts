@@ -30,6 +30,18 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Détail réservation' },
   },
   {
+    path: '/invoices',
+    name: 'invoices',
+    component: () => import('@/modules/billing/views/InvoicesView.vue'),
+    meta: { requiresAuth: true, title: 'Factures' },
+  },
+  {
+    path: '/invoices/:id',
+    name: 'invoice-detail',
+    component: () => import('@/modules/billing/views/InvoiceDetailView.vue'),
+    meta: { requiresAuth: true, title: 'Détail facture' },
+  },
+  {
     path: '/guests',
     name: 'guests',
     component: () => import('@/modules/guests/views/GuestsView.vue'),

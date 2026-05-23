@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1A1714; font-size: 14px; line-height: 1.6; background: #F5F0E8; margin: 0; padding: 0; }
+        .wrapper { max-width: 560px; margin: 30px auto; background: #fff; border-radius: 12px; padding: 32px; }
+        .logo { font-size: 18px; font-weight: 600; color: #1A1714; margin-bottom: 24px; }
+        h1 { font-size: 20px; font-weight: 500; margin-bottom: 16px; }
+        .ref { font-family: 'Courier New', monospace; color: #1D6E6E; font-size: 15px; font-weight: 500; }
+        .amount { font-size: 24px; font-weight: 600; color: #1A1714; margin: 16px 0; }
+        .details { background: #F5F0E8; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 13px; }
+        .details-row { display: flex; justify-content: space-between; padding: 4px 0; }
+        .details-label { color: #6B6459; }
+        .footer { font-size: 11px; color: #6B6459; text-align: center; margin-top: 28px; padding-top: 16px; border-top: 1px solid #EDE7D9; }
+        p { margin: 0 0 12px; }
+    </style>
+</head>
+<body>
+<div class="wrapper">
+    <div class="logo">{{ hotel ? hotel.name : 'StayOS' }}</div>
+
+    <p>Bonjour {{ guestName }},</p>
+
+    <p>Veuillez trouver ci-joint votre facture <span class="ref">{{ invoice.number }}</span>.</p>
+
+    <div class="amount">{{ invoice.totalXof|number_format(0, ',', ' ') }} FCFA</div>
+
+    <div class="details">
+        <div class="details-row">
+            <span class="details-label">Sous-total HT</span>
+            <span>{{ invoice.subtotalXof|number_format(0, ',', ' ') }} FCFA</span>
+        </div>
+        <div class="details-row">
+            <span class="details-label">TVA ({{ invoice.taxRate }}%)</span>
+            <span>{{ invoice.taxXof|number_format(0, ',', ' ') }} FCFA</span>
+        </div>
+        <div class="details-row" style="font-weight:500;border-top:1px solid #EDE7D9;padding-top:8px;margin-top:4px;">
+            <span>Total TTC</span>
+            <span>{{ invoice.totalXof|number_format(0, ',', ' ') }} FCFA</span>
+        </div>
+    </div>
+
+    <p style="font-size:13px;color:#6B6459;">Le PDF de la facture est joint à cet email.</p>
+
+    <div class="footer">
+        Cet email a été envoyé automatiquement par {{ hotel ? hotel.name : 'StayOS' }}.<br>
+        Merci de votre confiance.
+    </div>
+</div>
+</body>
+</html>

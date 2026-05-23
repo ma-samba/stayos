@@ -3,7 +3,9 @@
 namespace App\Tests\Unit\Entity;
 
 use App\Hotel\Billing\Domain\Entity\Invoice;
+use App\Hotel\Billing\Domain\Entity\Payment;
 use App\Hotel\Billing\Domain\Enum\InvoiceStatus;
+use App\Hotel\Billing\Domain\Enum\PaymentStatus;
 use PHPUnit\Framework\TestCase;
 
 class InvoiceTest extends TestCase
@@ -21,6 +23,16 @@ class InvoiceTest extends TestCase
         $invoice->setTotalXof($total);
 
         return $invoice;
+    }
+
+    private function makePayment(string $amount, PaymentStatus $status = PaymentStatus::PAID): Payment
+    {
+        $payment = new Payment();
+        $payment->setAmountXof($amount);
+        $payment->setStatusEnum($status);
+        $payment->setMethod('cash');
+
+        return $payment;
     }
 
     public function testTaxCalculation18Percent(): void
@@ -83,5 +95,82 @@ class InvoiceTest extends TestCase
 
         $this->assertGreaterThanOrEqual($before->getTimestamp(), $invoice->getCreatedAt()->getTimestamp());
         $this->assertLessThanOrEqual($after->getTimestamp(), $invoice->getCreatedAt()->getTimestamp());
+    }
+
+    // ── Soldes (bcmath) ──
+
+    public function testBalanceWithNoPayments(): void
+    {
+        $invoice = $this->makeInvoice('285000.00');
+        // Total TTC = 336 300
+        $this->assertSame('0', $invoice->getPaidXof());
+        $this->assertSame('336300.00', $invoice->getBalanceXof());
+        $this->assertFalse($invoice->isFullyPaid());
+    }
+
+    public function testPartialPayment(): void
+    {
+        $invoice = $this->makeInvoice('285000.00'); // total = 336300
+        $invoice->addPayment($this->makePayment('100000.00'));
+
+        $this->assertSame('100000.00', $invoice->getPaidXof());
+        $this->assertSame('236300.00', $invoice->getBalanceXof());
+        $this->assertFalse($invoice->isFullyPaid());
+    }
+
+    public function testFullPayment(): void
+    {
+        $invoice = $this->makeInvoice('285000.00'); // total = 336300
+        $invoice->addPayment($this->makePayment('336300.00'));
+
+        $this->assertSame('336300.00', $invoice->getPaidXof());
+        $this->assertSame('0.00', $invoice->getBalanceXof());
+        $this->assertTrue($invoice->isFullyPaid());
+    }
+
+    public function testPendingPaymentNotCounted(): void
+    {
+        $invoice = $this->makeInvoice('285000.00'); // total = 336300
+        $invoice->addPayment($this->makePayment('336300.00', PaymentStatus::PENDING));
+
+        // PENDING ne doit PAS compter dans le solde payé
+        $this->assertSame('0', $invoice->getPaidXof());
+        $this->assertSame('336300.00', $invoice->getBalanceXof());
+        $this->assertFalse($invoice->isFullyPaid());
+    }
+
+    public function testMultiplePayments(): void
+    {
+        $invoice = $this->makeInvoice('285000.00'); // total = 336300
+        $invoice->addPayment($this->makePayment('100000.00'));
+        $invoice->addPayment($this->makePayment('236300.00'));
+
+        $this->assertSame('336300.00', $invoice->getPaidXof());
+        $this->assertSame('0.00', $invoice->getBalanceXof());
+        $this->assertTrue($invoice->isFullyPaid());
+    }
+
+    public function testOverpaymentIsFullyPaid(): void
+    {
+        $invoice = $this->makeInvoice('100000.00'); // total = 118000
+        $invoice->addPayment($this->makePayment('120000.00'));
+
+        // Surpaiement → balance négatif → isFullyPaid true
+        $this->assertSame('-2000.00', $invoice->getBalanceXof());
+        $this->assertTrue($invoice->isFullyPaid());
+    }
+
+    public function testCompletedPaymentsFiltersOnPaid(): void
+    {
+        $invoice = $this->makeInvoice('100000.00');
+        $invoice->addPayment($this->makePayment('50000.00', PaymentStatus::PAID));
+        $invoice->addPayment($this->makePayment('50000.00', PaymentStatus::PENDING));
+        $invoice->addPayment($this->makePayment('30000.00', PaymentStatus::FAILED));
+
+        $completed = $invoice->getCompletedPayments();
+
+        $this->assertCount(1, $completed);
+        $this->assertSame('50000.00', $completed[0]->getAmountXof());
+        $this->assertSame(PaymentStatus::PAID, $completed[0]->getStatusEnum());
     }
 }

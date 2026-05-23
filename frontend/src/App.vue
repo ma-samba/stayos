@@ -14,6 +14,7 @@ const navItems = [
   { path: '/rooms',         icon: 'ti-bed',              label: 'Chambres' },
   { path: '/guests',        icon: 'ti-users',            label: 'Clients' },
   { path: '/reservations',  icon: 'ti-calendar',         label: 'Réservations' },
+  { path: '/invoices',      icon: 'ti-file-invoice',     label: 'Facturation' },
 ]
 
 function navigate(path: string): void {
