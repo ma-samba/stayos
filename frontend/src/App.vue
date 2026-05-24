@@ -10,12 +10,17 @@ const auth   = useAuthStore()
 const isAuthPage = computed(() => route.path === '/login')
 const isSidebarCollapsed = ref(false)
 
-const navItems = [
-  { path: '/rooms',         icon: 'ti-bed',              label: 'Chambres' },
-  { path: '/guests',        icon: 'ti-users',            label: 'Clients' },
-  { path: '/reservations',  icon: 'ti-calendar',         label: 'Réservations' },
-  { path: '/invoices',      icon: 'ti-file-invoice',     label: 'Facturation' },
+const allNavItems = [
+  { path: '/rooms',         icon: 'ti-bed',              label: 'Chambres',      module: 'rooms' },
+  { path: '/guests',        icon: 'ti-users',            label: 'Clients',       module: 'guests' },
+  { path: '/reservations',  icon: 'ti-calendar',         label: 'Réservations',  module: 'reservations' },
+  { path: '/invoices',      icon: 'ti-file-invoice',     label: 'Facturation',   module: 'billing' },
+  { path: '/housekeeping',  icon: 'ti-spray',            label: 'Ménage',        module: 'housekeeping' },
 ]
+
+const navItems = computed(() =>
+  allNavItems.filter(item => auth.canAccess(item.module))
+)
 
 function navigate(path: string): void {
   router.push(path)

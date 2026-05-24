@@ -13,9 +13,11 @@ use App\Hotel\Room\Infrastructure\Repository\RoomTypeRepository;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
 #[Route('/api/rooms', name: 'api_rooms_')]
+#[IsGranted('ROLE_ACCESS_ROOMS')]
 class RoomController extends AbstractApiController
 {
     public function __construct(

@@ -8,6 +8,8 @@ use App\Hotel\Room\Domain\Entity\Room;
 use App\Platform\Auth\Domain\Entity\StaffUser;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
+use Symfony\Component\Serializer\Attribute\Groups;
+use Symfony\Component\Serializer\Attribute\SerializedName;
 use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity]
@@ -18,6 +20,7 @@ class CleaningTask
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
+    #[Groups(['task:read'])]
     private Uuid $id;
 
     #[ORM\ManyToOne(targetEntity: Room::class)]
@@ -29,21 +32,27 @@ class CleaningTask
     private ?StaffUser $assignedTo = null;
 
     #[ORM\Column(length: 20, options: ['default' => 'pending'])]
+    #[Groups(['task:read'])]
     private string $status = CleaningStatus::PENDING->value;
 
     #[ORM\Column(length: 20, options: ['default' => 'stay_over'])]
+    #[Groups(['task:read'])]
     private string $type = CleaningType::STAY_OVER->value;
 
     #[ORM\Column]
+    #[Groups(['task:read'])]
     private \DateTimeImmutable $scheduledAt;
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['task:read'])]
     private ?\DateTimeImmutable $startedAt = null;
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['task:read'])]
     private ?\DateTimeImmutable $completedAt = null;
 
     #[ORM\Column(type: 'text', nullable: true)]
+    #[Groups(['task:read'])]
     private ?string $notes = null;
 
     public function __construct()
@@ -164,5 +173,42 @@ class CleaningTask
     {
         $this->notes = $notes;
         return $this;
+    }
+
+    // ── Champs calculés pour la sérialisation (évite d'exposer Room/StaffUser entiers) ──
+
+    #[Groups(['task:read'])]
+    #[SerializedName('roomNumber')]
+    public function getRoomNumber(): string
+    {
+        return $this->room->getNumber();
+    }
+
+    #[Groups(['task:read'])]
+    #[SerializedName('roomType')]
+    public function getRoomTypeName(): ?string
+    {
+        return $this->room->getType()?->getName();
+    }
+
+    #[Groups(['task:read'])]
+    #[SerializedName('roomId')]
+    public function getRoomId(): string
+    {
+        return $this->room->getId()->toRfc4122();
+    }
+
+    #[Groups(['task:read'])]
+    #[SerializedName('assignedToName')]
+    public function getAssignedToName(): ?string
+    {
+        return $this->assignedTo?->getFullName();
+    }
+
+    #[Groups(['task:read'])]
+    #[SerializedName('assignedToId')]
+    public function getAssignedToId(): ?string
+    {
+        return $this->assignedTo?->getId()?->toRfc4122();
     }
 }

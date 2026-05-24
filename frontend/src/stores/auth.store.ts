@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 
 interface JwtClaims {
   sub: string
+  uid: string
   slug: string
   tenant: string
   role: string
@@ -22,6 +23,7 @@ export const useAuthStore = defineStore('auth', () => {
   const claims       = ref<JwtClaims | null>(parseClaims(token.value))
 
   const isAuthenticated = computed(() => !!token.value)
+  const userId          = computed(() => claims.value?.uid ?? null)
   const tenantId        = computed(() => claims.value?.tenant ?? null)
   const userRole        = computed(() => claims.value?.role ?? null)
   const hotelName       = computed(() => claims.value?.hotel ?? null)
@@ -55,11 +57,36 @@ export const useAuthStore = defineStore('auth', () => {
     return features.value.includes(feature)
   }
 
+  // ── RBAC par module ──
+
+  const MODULE_ACCESS: Record<string, string[]> = {
+    rooms:        ['MANAGER', 'RECEPTIONIST', 'ACCOUNTANT'],
+    guests:       ['MANAGER', 'RECEPTIONIST'],
+    reservations: ['MANAGER', 'RECEPTIONIST'],
+    billing:      ['MANAGER', 'RECEPTIONIST', 'ACCOUNTANT'],
+    housekeeping: ['MANAGER', 'RECEPTIONIST', 'HOUSEKEEPER'],
+  }
+
+  function canAccess(module: string): boolean {
+    const role = claims.value?.role
+    if (!role) return false
+    return MODULE_ACCESS[module]?.includes(role) ?? false
+  }
+
+  function firstAccessiblePath(): string {
+    if (canAccess('rooms')) return '/rooms'
+    if (canAccess('reservations')) return '/reservations'
+    if (canAccess('billing')) return '/invoices'
+    if (canAccess('housekeeping')) return '/housekeeping'
+    return '/login'
+  }
+
   return {
     token,
     refreshToken,
     claims,
     isAuthenticated,
+    userId,
     tenantId,
     userRole,
     hotelName,
@@ -67,6 +94,8 @@ export const useAuthStore = defineStore('auth', () => {
     setTokens,
     logout,
     hasFeature,
+    canAccess,
+    firstAccessiblePath,
   }
 })
 

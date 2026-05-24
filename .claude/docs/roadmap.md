@@ -5,9 +5,9 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **Sprint 8 — Housekeeping**
-- Dernière mise à jour : 22 mai 2026
-- Sprints terminés : 1, 2, 3, 4, 5, 6, 7
+- Sprint courant : **Sprint 9 — Tarifs & promotions**
+- Dernière mise à jour : 24 mai 2026
+- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8
 
 ---
 
@@ -233,27 +233,39 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### ⬜ Sprint 8 — Housekeeping
+### ✅ Sprint 8 — Housekeeping
 **Objectif** : le personnel de ménage voit ses tâches, les met à jour depuis mobile.
 
 **Backend**
-- [ ] `HousekeepingService::generateDailyTasks()` — scheduler Messenger (7h matin)
-- [ ] `HousekeepingService::assign()`, `updateStatus()`
-- [ ] Tâche DONE → chambre AVAILABLE si pas de check-in suivant
-- [ ] Notification Mercure au staff assigné
+- [x] `CleaningTask` entité + `CleaningStatus`/`CleaningType` enums
+- [x] `CleaningTaskRepository` — findForBoard(), hasActiveTaskForRoomOnDate()
+- [x] `HousekeepingService::generateDailyTasks()` — recouches STAY_OVER (exclut jour arrivée + départ)
+- [x] `HousekeepingService::updateStatus()` — machine à états (INSPECTED terminal, DONE libère chambre)
+- [x] Tâche DEPARTURE créée au check-out (ReservationEngine) avec garde anti-doublon
+- [x] `CleaningTaskController` — GET tasks + PATCH status, RBAC ROLE_ACCESS_HOUSEKEEPING
+- [x] Notification Mercure task.assigned + task.updated
+- [x] HOUSEKEEPER ne voit que ses propres tâches (filtrage controller)
 
 **Frontend**
-- [ ] `HousekeepingView.vue` — kanban (PENDING → IN_PROGRESS → DONE → INSPECTED)
-- [ ] `TaskCard.vue` — numéro chambre, type, assigné, heure
-- [ ] Vue mobile optimisée (responsive, gros boutons)
-- [ ] Notification push quand tâche assignée
+- [x] `HousekeepingView.vue` — kanban 5 colonnes (PENDING → IN_PROGRESS → DONE → INSPECTED + SKIPPED)
+- [x] `TaskCard.vue` — numéro chambre, type, assigné, heure, actions contextuelles
+- [x] Confirmation inline "Ignorer" + bouton "Réactiver"
+- [x] Vue mobile responsive (1/2/3/5 colonnes selon breakpoint)
+- [x] Notification toast Mercure quand tâche assignée (ciblée par userId)
+- [x] Page de login manquante créée (LoginView + auth.service)
+
+**Sécurité**
+- [x] RBAC complet par rôle (backend security.yaml role_hierarchy + IsGranted sur tous les controllers)
+- [x] Frontend : canAccess(), firstAccessiblePath(), sidebar filtrée, route guards avec meta.module
+- [x] UUID utilisateur dans le JWT (claim `uid`) pour ciblage Mercure
 
 **Tests**
-- [ ] `HousekeepingTaskTest` — tâches générées au check-out
-- [ ] `HousekeepingTaskTest` — DONE → chambre AVAILABLE
-- [ ] `HousekeepingTaskTest` — HOUSEKEEPER ne voit que ses tâches
+- [x] `ReservationEngineTest` — 11 tests (dont checkout crée DEPARTURE, anti-doublon)
+- [x] `HousekeepingServiceTest` — 6 tests (machine à états, libération chambre, timestamps)
+- [x] `HousekeepingGenerateTest` — 5 tests (exclusion arrivée/départ, idempotence, 1 nuit)
+- [x] `RoomServiceTest` — 7 tests (fixé : constructor mismatch)
 
-**Livrable** : app mobile housekeeping fonctionnelle
+**Livrable** : kanban housekeeping fonctionnel, RBAC complet, 76 tests unitaires verts
 
 ---
 
@@ -406,3 +418,43 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 | SaaS | S12–S13 | 2 semaines | Monétisation + supervision |
 | Production | S14 | 1 semaine | Déploiement + sécurité finale |
 | **Total** | **14 sprints** | **~14 semaines** | **App production-ready** |
+
+---
+
+## Évolutions futures (backlog hors-sprint)
+
+Idées et besoins identifiés en cours de développement, à planifier
+après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
+
+### Housekeeping — préférences client & offres
+- **Client "Ne pas déranger" / refus du ménage quotidien** : permettre
+  qu'un client décline la recouche. La génération quotidienne
+  (generateDailyTasks) devra alors exclure les chambres dont le client
+  / la réservation a opté pour "pas de ménage". Nécessite de stocker
+  cette préférence (sur le Guest ou sur la Reservation) et de la
+  prendre en compte dans la condition de génération.
+- **Offre incitative "pas de recouche"** : proposer un avantage au
+  client qui renonce au ménage de recouche (ex : boisson de bienvenue,
+  réduction, points fidélité). Implique : un suivi du choix client par
+  jour, une logique de récompense, et un impact sur la génération des
+  tâches. Pertinent pour la RSE (économie d'eau/énergie) et la
+  réduction des coûts de ménage.
+
+### Module Staff & assignation des tâches
+- **Module de gestion du personnel** : lister, créer, désactiver les
+  comptes employés (StaffUser), gérer leurs rôles (MANAGER,
+  RECEPTIONIST, ACCOUNTANT, HOUSEKEEPER). N'existe pas encore — les
+  comptes sont créés via fixtures uniquement.
+- **Endpoint de listing du staff** : GET /api/staff (filtrable par
+  rôle, ex: ?role=HOUSEKEEPER) — prérequis pour toute UI d'assignation.
+  À sécuriser par rôle (manager/réceptionniste).
+- **UI d'assignation des tâches de ménage** : le backend est prêt
+  (PATCH /api/housekeeping/tasks/{id}/assign, réservé MANAGER/
+  RECEPTIONIST, + notif Mercure task.assigned). Manque le bouton
+  "Assigner" dans la TaskCard du kanban (la prop isSupervisor est déjà
+  câblée) et le menu de sélection du staff (nécessite l'endpoint
+  ci-dessus).
+- **Stratégie d'assignation à définir (réflexion produit)** : assigner
+  manuellement tâche par tâche ? par zone/étage attribué à chaque
+  agent ? automatiquement à la génération des tâches ? À trancher avant
+  d'implémenter l'UI.

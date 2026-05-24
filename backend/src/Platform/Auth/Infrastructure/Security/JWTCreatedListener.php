@@ -35,6 +35,7 @@ class JWTCreatedListener
                 $tenant       = $this->tenantContext->get();
                 $subscription = $this->subscriptionRepository->findActiveByTenant($tenant);
 
+                $payload['uid']      = (string) $user->getId();
                 $payload['slug']     = $tenant->getSlug();
                 $payload['tenant']   = (string) $tenant->getId();
                 $payload['hotel']    = $tenant->getName();

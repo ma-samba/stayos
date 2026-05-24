@@ -10,9 +10,11 @@ use App\Hotel\Reservation\Infrastructure\Repository\ReservationRepository;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
 #[Route('/api/reservations', name: 'api_reservations_')]
+#[IsGranted('ROLE_ACCESS_RESERVATIONS')]
 class ReservationController extends AbstractApiController
 {
     public function __construct(

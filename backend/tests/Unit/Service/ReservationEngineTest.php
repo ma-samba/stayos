@@ -5,12 +5,13 @@ namespace App\Tests\Unit\Service;
 use App\Hotel\Guest\Domain\Entity\Guest;
 use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
 use App\Hotel\Reservation\Application\DTO\CreateReservationDTO;
-use App\Hotel\Reservation\Application\DTO\UpdateReservationDTO;
 use App\Hotel\Reservation\Domain\Entity\Reservation;
 use App\Hotel\Reservation\Domain\Enum\ReservationStatus;
 use App\Hotel\Reservation\Domain\Service\ConflictChecker;
 use App\Hotel\Reservation\Domain\Service\ReservationEngine;
 use App\Hotel\Billing\Domain\Service\InvoiceDraftService;
+use App\Hotel\Housekeeping\Domain\Entity\CleaningTask;
+use App\Hotel\Housekeeping\Infrastructure\Repository\CleaningTaskRepository;
 use App\Hotel\Reservation\Infrastructure\Repository\ReservationRepository;
 use App\Hotel\Room\Domain\Entity\Room;
 use App\Hotel\Room\Domain\Entity\RoomType;
@@ -36,21 +37,23 @@ class ReservationEngineTest extends TestCase
     private MockObject&AuditService $auditService;
     private MockObject&MercurePublisher $mercurePublisher;
     private MockObject&InvoiceDraftService $invoiceDraftService;
+    private MockObject&CleaningTaskRepository $cleaningTaskRepo;
     private MockObject&LoggerInterface $logger;
     private MockObject&EntityManagerInterface $entityManager;
     private MockObject&StaffUser $staff;
 
     protected function setUp(): void
     {
-        $this->reservationRepo  = $this->createMock(ReservationRepository::class);
-        $this->roomRepo         = $this->createMock(RoomRepository::class);
-        $this->guestRepo        = $this->createMock(GuestRepository::class);
-        $this->conflictChecker  = $this->createMock(ConflictChecker::class);
-        $this->auditService      = $this->createMock(AuditService::class);
-        $this->mercurePublisher  = $this->createMock(MercurePublisher::class);
+        $this->reservationRepo     = $this->createMock(ReservationRepository::class);
+        $this->roomRepo            = $this->createMock(RoomRepository::class);
+        $this->guestRepo           = $this->createMock(GuestRepository::class);
+        $this->conflictChecker     = $this->createMock(ConflictChecker::class);
+        $this->auditService        = $this->createMock(AuditService::class);
+        $this->mercurePublisher    = $this->createMock(MercurePublisher::class);
         $this->invoiceDraftService = $this->createMock(InvoiceDraftService::class);
-        $this->logger            = $this->createMock(LoggerInterface::class);
-        $this->entityManager     = $this->createMock(EntityManagerInterface::class);
+        $this->cleaningTaskRepo    = $this->createMock(CleaningTaskRepository::class);
+        $this->logger              = $this->createMock(LoggerInterface::class);
+        $this->entityManager       = $this->createMock(EntityManagerInterface::class);
 
         $this->engine = new ReservationEngine(
             $this->reservationRepo,
@@ -60,6 +63,7 @@ class ReservationEngineTest extends TestCase
             $this->auditService,
             $this->mercurePublisher,
             $this->invoiceDraftService,
+            $this->cleaningTaskRepo,
             $this->logger,
             $this->entityManager,
         );
@@ -201,7 +205,7 @@ class ReservationEngineTest extends TestCase
 
         $reservation = $this->makeReservation('confirmed', $room, $guest);
 
-        $this->entityManager->expects($this->once())->method('persist'); // CleaningTask
+        // checkIn() ne crée plus de CleaningTask (DEPARTURE créée au check-out)
         $this->entityManager->expects($this->once())->method('flush');
 
         $result = $this->engine->checkIn($reservation, null, $this->staff);
@@ -223,6 +227,9 @@ class ReservationEngineTest extends TestCase
 
         $reservation = $this->makeReservation('checked_in', $room, $guest);
 
+        // checkOut() crée une tâche DEPARTURE
+        $this->cleaningTaskRepo->method('hasActiveTaskForRoomOnDate')->willReturn(false);
+        $this->entityManager->expects($this->once())->method('persist');
         $this->entityManager->expects($this->once())->method('flush');
 
         $result = $this->engine->checkOut($reservation, $this->staff);
@@ -261,6 +268,8 @@ class ReservationEngineTest extends TestCase
 
         $reservation = $this->makeReservation('checked_in', $room, $guest);
 
+        $this->cleaningTaskRepo->method('hasActiveTaskForRoomOnDate')->willReturn(false);
+
         $this->invoiceDraftService
             ->expects($this->once())
             ->method('createFromReservation')
@@ -281,6 +290,8 @@ class ReservationEngineTest extends TestCase
         $guest->method('setTotalStays');
 
         $reservation = $this->makeReservation('checked_in', $room, $guest);
+
+        $this->cleaningTaskRepo->method('hasActiveTaskForRoomOnDate')->willReturn(false);
 
         $this->invoiceDraftService
             ->method('createFromReservation')
@@ -327,5 +338,50 @@ class ReservationEngineTest extends TestCase
         // 5 nuits × 55 000 = 275 000
         $this->assertEquals('275000.00', $reservation->getTotalXof());
         $this->assertEquals('55000.00', $reservation->getRateXof());
+    }
+
+    // ── Test 10 : Check-out crée une tâche DEPARTURE ──
+
+    public function testCheckOutCreatesDepartureTask(): void
+    {
+        $room  = $this->makeRoom();
+        $guest = $this->makeGuest();
+
+        $room->method('setStatusEnum');
+        $guest->method('getTotalStays')->willReturn(0);
+        $guest->method('setTotalStays');
+
+        $reservation = $this->makeReservation('checked_in', $room, $guest);
+
+        $this->cleaningTaskRepo->method('hasActiveTaskForRoomOnDate')->willReturn(false);
+
+        $this->entityManager->expects($this->once())->method('persist')
+            ->with($this->callback(function (object $entity): bool {
+                return $entity instanceof CleaningTask
+                    && $entity->getType() === 'departure';
+            }));
+
+        $this->engine->checkOut($reservation, $this->staff);
+    }
+
+    // ── Test 11 : Check-out ne duplique pas la tâche si elle existe déjà ──
+
+    public function testCheckOutSkipsDepartureTaskIfAlreadyExists(): void
+    {
+        $room  = $this->makeRoom();
+        $guest = $this->makeGuest();
+
+        $room->method('setStatusEnum');
+        $guest->method('getTotalStays')->willReturn(0);
+        $guest->method('setTotalStays');
+
+        $reservation = $this->makeReservation('checked_in', $room, $guest);
+
+        // Tâche active existe déjà (ex : recouche générée le matin)
+        $this->cleaningTaskRepo->method('hasActiveTaskForRoomOnDate')->willReturn(true);
+
+        $this->entityManager->expects($this->never())->method('persist');
+
+        $this->engine->checkOut($reservation, $this->staff);
     }
 }

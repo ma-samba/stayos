@@ -9,9 +9,11 @@ use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
 #[Route('/api/guests', name: 'api_guests_')]
+#[IsGranted('ROLE_ACCESS_GUESTS')]
 class GuestController extends AbstractApiController
 {
     public function __construct(

@@ -159,6 +159,43 @@ export interface Invoice {
 }
 
 // ──────────────────────────────────────────────────────────────
+//  Housekeeping
+// ──────────────────────────────────────────────────────────────
+
+export type CleaningStatus = 'pending' | 'in_progress' | 'done' | 'inspected' | 'skipped'
+export type CleaningType   = 'departure' | 'stay_over' | 'inspection' | 'maintenance'
+
+export interface CleaningTask {
+  id: string
+  status: CleaningStatus
+  type: CleaningType
+  scheduledAt: string
+  startedAt: string | null
+  completedAt: string | null
+  notes: string | null
+  roomNumber: string
+  roomType: string | null
+  roomId: string
+  assignedToName: string | null
+  assignedToId: string | null
+}
+
+export interface TaskAssignedEvent {
+  taskId: string
+  roomNumber: string
+  type: string
+  assignedToId: string
+  assignedToName: string
+  scheduledAt: string
+}
+
+export interface TaskUpdatedEvent {
+  taskId: string
+  roomNumber: string
+  status: CleaningStatus
+}
+
+// ──────────────────────────────────────────────────────────────
 //  Réponses API standard
 // ──────────────────────────────────────────────────────────────
 

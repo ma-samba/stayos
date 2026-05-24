@@ -82,8 +82,29 @@ security:
         - { path: ^/api,                 roles: IS_AUTHENTICATED_FULLY }
 
     role_hierarchy:
-        ROLE_SUPER_ADMIN:  [ROLE_ADMIN]
-        ROLE_MANAGER:      [ROLE_RECEPTIONIST]
-        ROLE_RECEPTIONIST: [ROLE_HOUSEKEEPER]
-        ROLE_HOUSEKEEPER:  [ROLE_USER]
-        ROLE_ACCOUNTANT:   [ROLE_USER]
+        ROLE_SUPER_ADMIN: [ROLE_ADMIN]
+
+        ROLE_MANAGER:
+            - ROLE_ACCESS_ROOMS
+            - ROLE_ACCESS_GUESTS
+            - ROLE_ACCESS_RESERVATIONS
+            - ROLE_ACCESS_BILLING
+            - ROLE_ACCESS_HOUSEKEEPING
+            - ROLE_USER
+
+        ROLE_RECEPTIONIST:
+            - ROLE_ACCESS_ROOMS
+            - ROLE_ACCESS_GUESTS
+            - ROLE_ACCESS_RESERVATIONS
+            - ROLE_ACCESS_BILLING
+            - ROLE_ACCESS_HOUSEKEEPING
+            - ROLE_USER
+
+        ROLE_ACCOUNTANT:
+            - ROLE_ACCESS_ROOMS
+            - ROLE_ACCESS_BILLING
+            - ROLE_USER
+
+        ROLE_HOUSEKEEPER:
+            - ROLE_ACCESS_HOUSEKEEPING
+            - ROLE_USER

@@ -6,6 +6,7 @@ use App\Hotel\Billing\Domain\Service\InvoiceDraftService;
 use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
 use App\Hotel\Housekeeping\Domain\Entity\CleaningTask;
 use App\Hotel\Housekeeping\Domain\Enum\CleaningType;
+use App\Hotel\Housekeeping\Infrastructure\Repository\CleaningTaskRepository;
 use App\Hotel\Reservation\Application\DTO\CreateReservationDTO;
 use App\Hotel\Reservation\Application\DTO\UpdateReservationDTO;
 use App\Hotel\Reservation\Domain\Entity\Reservation;
@@ -31,6 +32,7 @@ class ReservationEngine
         private readonly AuditService           $auditService,
         private readonly MercurePublisher       $mercurePublisher,
         private readonly InvoiceDraftService    $invoiceDraftService,
+        private readonly CleaningTaskRepository $cleaningTaskRepository,
         private readonly LoggerInterface        $logger,
         private readonly EntityManagerInterface $entityManager,
     ) {}
@@ -270,13 +272,9 @@ class ReservationEngine
         // Passer la chambre en occupée
         $reservation->getRoom()->setStatusEnum(RoomStatus::OCCUPIED);
 
-        // Créer une tâche ménage départ programmée pour le check-out
-        $task = new CleaningTask();
-        $task->setRoom($reservation->getRoom());
-        $task->setType(CleaningType::DEPARTURE->value);
-        $task->setScheduledAt($reservation->getCheckOut());
-        $this->entityManager->persist($task);
-
+        // NB : la tâche de ménage DEPARTURE est créée au check-out réel
+        // (voir checkOut()), pas ici — le ménage de départ est déclenché
+        // par le départ effectif, daté du moment réel.
         $this->auditService->log(
             action:     'reservation.checkin',
             entityType: 'Reservation',
@@ -313,6 +311,18 @@ class ReservationEngine
 
         // Passer la chambre en ménage
         $reservation->getRoom()->setStatusEnum(RoomStatus::CLEANING);
+
+        // Créer la tâche de ménage DEPARTURE, datée du départ réel (maintenant),
+        // pour qu'elle apparaîsse immédiatement dans le board du jour.
+        // Garde anti-doublon : ne pas recréer si une tâche active existe déjà
+        // pour cette chambre aujourd'hui (ex : recouche générée le matin).
+        if (!$this->cleaningTaskRepository->hasActiveTaskForRoomOnDate((string) $reservation->getRoom()->getId(), $now)) {
+            $task = new CleaningTask();
+            $task->setRoom($reservation->getRoom());
+            $task->setType(CleaningType::DEPARTURE->value);
+            $task->setScheduledAt($now);
+            $this->entityManager->persist($task);
+        }
 
         // Incrémenter les séjours du client
         $guest = $reservation->getGuest();

@@ -5,7 +5,9 @@ namespace App\Tests\Unit\Service;
 use App\Hotel\Room\Domain\Entity\Room;
 use App\Hotel\Room\Domain\Enum\RoomStatus;
 use App\Hotel\Room\Domain\Service\RoomService;
+use App\Hotel\Property\Infrastructure\Repository\FloorRepository;
 use App\Hotel\Room\Infrastructure\Repository\RoomRepository;
+use App\Hotel\Room\Infrastructure\Repository\RoomTypeRepository;
 use App\Hotel\Shared\Domain\Service\AuditService;
 use App\Platform\Auth\Domain\Entity\StaffUser;
 use App\Shared\Mercure\MercurePublisher;
@@ -40,6 +42,8 @@ class RoomServiceTest extends TestCase
 
         $this->service = new RoomService(
             $this->roomRepository,
+            $this->createMock(RoomTypeRepository::class),
+            $this->createMock(FloorRepository::class),
             $this->entityManager,
             $this->auditService,
             $this->mercurePublisher,

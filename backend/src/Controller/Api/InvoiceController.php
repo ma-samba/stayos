@@ -17,9 +17,11 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
 #[Route('/api/invoices', name: 'api_invoices_')]
+#[IsGranted('ROLE_ACCESS_BILLING')]
 class InvoiceController extends AbstractApiController
 {
     public function __construct(
