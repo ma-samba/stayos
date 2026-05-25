@@ -60,6 +60,7 @@ export const useAuthStore = defineStore('auth', () => {
   // ── RBAC par module ──
 
   const MODULE_ACCESS: Record<string, string[]> = {
+    dashboard:    ['MANAGER', 'RECEPTIONIST', 'ACCOUNTANT'],
     rooms:        ['MANAGER', 'RECEPTIONIST', 'ACCOUNTANT'],
     guests:       ['MANAGER', 'RECEPTIONIST'],
     reservations: ['MANAGER', 'RECEPTIONIST'],
@@ -75,6 +76,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function firstAccessiblePath(): string {
+    if (canAccess('dashboard')) return '/dashboard'
     if (canAccess('rooms')) return '/rooms'
     if (canAccess('reservations')) return '/reservations'
     if (canAccess('billing')) return '/invoices'

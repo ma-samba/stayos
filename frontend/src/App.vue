@@ -11,6 +11,7 @@ const isAuthPage = computed(() => route.path === '/login')
 const isSidebarCollapsed = ref(false)
 
 const allNavItems = [
+  { path: '/dashboard',     icon: 'ti-layout-dashboard', label: 'Tableau de bord', module: 'dashboard' },
   { path: '/rooms',         icon: 'ti-bed',              label: 'Chambres',      module: 'rooms' },
   { path: '/guests',        icon: 'ti-users',            label: 'Clients',       module: 'guests' },
   { path: '/reservations',  icon: 'ti-calendar',         label: 'Réservations',  module: 'reservations' },

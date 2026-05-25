@@ -17,6 +17,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: false, title: 'Connexion' },
   },
   {
+    path: '/dashboard',
+    name: 'dashboard',
+    component: () => import('@/modules/dashboard/views/DashboardView.vue'),
+    meta: { requiresAuth: true, title: 'Tableau de bord', module: 'dashboard' },
+  },
+  {
     path: '/rooms',
     name: 'rooms',
     component: () => import('@/modules/rooms/views/RoomsView.vue'),

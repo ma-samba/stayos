@@ -272,6 +272,44 @@ export interface PriceBreakdown {
 }
 
 // ──────────────────────────────────────────────────────────────
+//  Dashboard & Rapports
+// ──────────────────────────────────────────────────────────────
+
+export interface DashboardKpis {
+  occupancyRate: string
+  adrHt: string
+  revparHt: string
+  roomRevenueHt: string
+  roomRevenueTtc: string
+  roomNightsAvailable: number
+  roomNightsSold: number
+  arrivalsToday: number
+  departuresToday: number
+  occupiedRooms: number
+  availableRooms: number
+}
+
+export interface DailyDataPoint {
+  date: string
+  occupancyRate: string
+  roomRevenueHt: string
+  soldNights: number
+}
+
+export interface PeriodReport {
+  occupancyRate: string
+  adrHt: string
+  revparHt: string
+  roomRevenueHt: string
+  roomRevenueTtc: string
+  roomNightsAvailable: number
+  roomNightsSold: number
+  from: string
+  to: string
+  dailySeries: DailyDataPoint[]
+}
+
+// ──────────────────────────────────────────────────────────────
 //  Réponses API standard
 // ──────────────────────────────────────────────────────────────
 

@@ -135,19 +135,22 @@ class HotelDataFixtures extends Fixture implements DependentFixtureInterface
         $manager->persist($typeSuite);
 
         // ── Rooms ──
+        // Statuts neutres : AVAILABLE par défaut. Les chambres occupées
+        // seront marquées OCCUPIED par ReservationFixtures en fonction
+        // des réservations CHECKED_IN couvrant aujourd'hui.
         $roomData = [
             // floor 1 — Standard
-            ['number' => '101', 'type' => $typeStandard, 'floor' => 1, 'status' => RoomStatus::OCCUPIED],
+            ['number' => '101', 'type' => $typeStandard, 'floor' => 1, 'status' => RoomStatus::AVAILABLE],
             ['number' => '102', 'type' => $typeStandard, 'floor' => 1, 'status' => RoomStatus::AVAILABLE],
-            ['number' => '103', 'type' => $typeStandard, 'floor' => 1, 'status' => RoomStatus::OCCUPIED],
+            ['number' => '103', 'type' => $typeStandard, 'floor' => 1, 'status' => RoomStatus::AVAILABLE],
             ['number' => '104', 'type' => $typeStandard, 'floor' => 1, 'status' => RoomStatus::CLEANING],
             // floor 2 — Deluxe
-            ['number' => '201', 'type' => $typeDeluxe, 'floor' => 2, 'status' => RoomStatus::OCCUPIED],
+            ['number' => '201', 'type' => $typeDeluxe, 'floor' => 2, 'status' => RoomStatus::AVAILABLE],
             ['number' => '202', 'type' => $typeDeluxe, 'floor' => 2, 'status' => RoomStatus::AVAILABLE],
-            ['number' => '203', 'type' => $typeDeluxe, 'floor' => 2, 'status' => RoomStatus::OCCUPIED],
+            ['number' => '203', 'type' => $typeDeluxe, 'floor' => 2, 'status' => RoomStatus::AVAILABLE],
             ['number' => '204', 'type' => $typeDeluxe, 'floor' => 2, 'status' => RoomStatus::MAINTENANCE],
             // floor 3 — Suite
-            ['number' => '301', 'type' => $typeSuite, 'floor' => 3, 'status' => RoomStatus::OCCUPIED],
+            ['number' => '301', 'type' => $typeSuite, 'floor' => 3, 'status' => RoomStatus::AVAILABLE],
             ['number' => '302', 'type' => $typeSuite, 'floor' => 3, 'status' => RoomStatus::AVAILABLE],
         ];
 
@@ -205,8 +208,9 @@ class HotelDataFixtures extends Fixture implements DependentFixtureInterface
         $manager->persist($typeStd);
 
         // ── Rooms ──
+        // Toutes AVAILABLE — pas de réservation CHECKED_IN définie pour Villa
         $roomNumbers = ['101', '102', '103', '104'];
-        $statuses    = [RoomStatus::OCCUPIED, RoomStatus::AVAILABLE, RoomStatus::OCCUPIED, RoomStatus::AVAILABLE];
+        $statuses    = [RoomStatus::AVAILABLE, RoomStatus::AVAILABLE, RoomStatus::AVAILABLE, RoomStatus::AVAILABLE];
 
         foreach ($roomNumbers as $i => $number) {
             $room = new Room();

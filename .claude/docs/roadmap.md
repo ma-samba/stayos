@@ -5,9 +5,9 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **Sprint 10 — Dashboard & rapports**
-- Dernière mise à jour : 24 mai 2026
-- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9
+- Sprint courant : **Sprint 11 — Notifications temps réel**
+- Dernière mise à jour : 25 mai 2026
+- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
 
 ---
 
@@ -302,28 +302,41 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### ⬜ Sprint 10 — Dashboard & rapports
+### ✅ Sprint 10 — Dashboard & rapports
 **Objectif** : tableau de bord temps réel, rapports d'occupation et revenus.
 
 **Backend**
-- [ ] `DashboardService` — KPIs du jour, taux d'occupation, RevPAR
-- [ ] `ReportController` — occupation, revenus, RevPAR sur période
-- [ ] Export CSV + Excel (PhpSpreadsheet)
-- [ ] Feature flag `advanced_reports` (Plan Pro)
+- [x] `KpiService` (src/Hotel/Analytics/) — KPIs du jour (dashboardToday) + rapport période (periodReport). Occupation, ADR HT, RevPAR HT, CA HT/TTC. Calcul PAR NUIT avec prorata sur la période, HT extrait du TTC (÷1.18), bcmath intégral.
+- [x] Formules figées au standard hôtelier : occupation = nuits vendues / nuits disponibles ; ADR = revenu HT / nuits vendues ; RevPAR = revenu HT / nuits disponibles. Vérification croisée RevPAR = ADR × occupation testée.
+- [x] `AnalyticsRepository` — réservations intersectant la période (exclut CANCELLED/NO_SHOW), comptage chambres actives non hors-service, arrivées/départs du jour.
+- [x] DTOs immuables : `DashboardKpis`, `PeriodReport`, `DailyDataPoint` (série journalière).
+- [x] `DashboardController` — GET /today (ROLE_ACCESS_BILLING), GET /report + GET /report/export (ROLE_ACCESS_REPORTS + feature advanced_reports). Validation des dates factorisée (parseDateRange).
+- [x] `ReportExporter` — export CSV natif (BOM UTF-8, séparateur ;) + XLSX (PhpSpreadsheet ^2.2). Bascule via supportsXlsx().
+- [x] RBAC : nouveau rôle ROLE_ACCESS_REPORTS (MANAGER + ACCOUNTANT, pas RECEPTIONIST) ajouté à la hiérarchie. /today ouvert à réception+manager+comptable, /report réservé manager+comptable.
+- [x] Feature flag `advanced_reports` sur le plan Pro (rapports sur période et export derrière ce flag ; KPIs du jour libres).
 
 **Frontend**
-- [ ] `DashboardView.vue` — stat cards + graphiques ApexCharts
-- [ ] `OccupancyChart.vue` — taux d'occupation hebdo/mensuel
-- [ ] `RevenueChart.vue` — CA sur période
-- [ ] `RevPARChart.vue` — Revenue Per Available Room
-- [ ] `ReportsView.vue` — générateur + export
+- [x] `DashboardView.vue` — page d'accueil unifiée : stat cards du jour + section Rapports (masquée si pas la feature) + sélecteur de période avec raccourcis + agrégats période + graphiques.
+- [x] Graphiques Chart.js 4 / vue-chartjs 5 : `OccupancyChart` (courbe occupation/jour, axe 0-100%), `RevenueChart` (barres CA HT/jour), `SoldNightsChart` (nuits vendues/jour). RevPAR/ADR en cartes agrégées (pas de série journalière inventée).
+- [x] `dashboard.service.ts` (today/report/exportReport blob) + `dashboard.store.ts` (Pinia setup).
+- [x] Module 'dashboard' dans MODULE_ACCESS (MANAGER, RECEPTIONIST, ACCOUNTANT ; pas HOUSEKEEPER) ; dashboard = home par défaut pour ces rôles ; entrée sidebar "Tableau de bord" ; route /dashboard.
+- [x] Étiquetage clair des périodes : "Activité du jour — {date}" vs bloc Rapports sur période. Carte "Occupation (vendu)" avec "{vendues}/{dispo} vendues" + carte distincte "Occupées (clients présents)".
 
 **Tests**
-- [ ] `DashboardTest` — KPIs calculés correctement
-- [ ] `RevPARTest` — formule correcte
-- [ ] `ReportExportTest` — CSV généré avec bonnes colonnes
+- [x] `KpiServiceTest` — 22 tests (formules sur jeu de données connu, prorata période, intersection nuits, exclusion CANCELLED, vérification croisée RevPAR = ADR × occupation).
+- [x] `DashboardControllerTest` — 11 tests fonctionnels (RBAC today/report, 403 housekeeper, 403 réceptionniste sur report, 403 PLAN_LIMIT vs ACCESS_DENIED distingués, 422 dates invalides, export CSV avec vérification headers).
+- [x] Suite complète : 118 tests unitaires / 377 assertions verts.
 
-**Livrable** : dashboard opérationnel avec vrais KPIs hôteliers
+**Ajouts notables (Sprint 10)**
+- [x] Décision métier : ADR/RevPAR en HT (standard hôtelier, comparable aux benchmarks ; extraction depuis le TTC stocké).
+- [x] Décision : occupation = "vendue" (nuits vendues/dispo), cohérente avec ADR/RevPAR. NB : diverge de l'intention initiale de services.md (occupation physique) — doc à resynchroniser.
+- [x] Détail tarifaire (usage interne) sur la page facture, lu depuis priceBreakdown (option B) ; PDF/email client inchangés.
+- [x] Réhydratation plan tarifaire + code promo à l'édition d'une réservation (depuis priceBreakdown) — corrige la perte de remise.
+- [x] Sélecteurs plan tarifaire (résa) + type de chambre (plan) + onglet "Types de chambre" éditable + toggle CSS .toggle ajouté au design system.
+- [x] Makefile : make fixtures / make db-reset utilisent --purger=tenant_aware (purger tenant-aware déjà en place).
+- [x] Fixtures cohérentes : statuts de chambres dérivés des réservations CHECKED_IN (plus de OCCUPIED en dur) ; libellés "Occupation physique" (page Chambres) vs "Occupation (vendu)" (dashboard) harmonisés.
+
+**Livrable** : dashboard opérationnel avec KPIs hôteliers justes (occupation, ADR HT, RevPAR HT, CA), rapports sur période avec graphiques et export CSV/XLSX, le tout sous contrôle RBAC + feature.
 
 ---
 
@@ -474,11 +487,14 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   explicite choisi pour le Sprint 9. A affiner : memoriser la promo/le
   plan appliques sur la reservation et les reutiliser au recalcul, ou
   demander confirmation a l'utilisateur.
-- **Ligne de facture detaillee** : `InvoiceDraftService` genere une
-  ligne unique au total reel. Ameliorer en decomposant (tarif de base,
-  ajustement saisonnier, remise promo) en plusieurs lignes lisibles sur
-  la facture. Le detail existe deja dans `reservation.priceBreakdown` —
-  il suffit de le rendre.
+- **Ligne de facture detaillee (client)** : `InvoiceDraftService`
+  genere une ligne unique au total reel. Le detail tarifaire est
+  visible en interne sur la page facture (option B livree au Sprint 10,
+  lu depuis `reservation.priceBreakdown`). Reste a faire : decomposer
+  les lignes de la facture CLIENT (tarif de base, ajustement
+  saisonnier, remise promo) pour une lecture claire sur le PDF/email.
+  Implique une reflexion fiscale (traitement de la remise sur la TVA)
+  a valider avec un comptable local avant implementation.
 - **Feature-gating complet (Sprint 12)** : le `FeatureChecker` actuel
   ne garde QUE l'ecriture des tarifs. Au Sprint 12 (Abonnements),
   generaliser le gating a toutes les features Pro (`advanced_reports`,
@@ -495,3 +511,32 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   accepte `applicableRoomTypeIds` / `applicableRatePlanIds` (restriction
   d'une promo a certains types/plans), mais `PromotionForm` ne les
   expose pas encore. A ajouter si le besoin de ciblage fin se confirme.
+
+### Dashboard & rapports — enrichissements
+- **Comparaison vs periode precedente** : afficher la variation % des
+  KPIs par rapport a la meme periode precedente (ex : +12% occupation
+  vs mois dernier). Necessite un double appel ou un calcul backend
+  dedie.
+- **Repartition par source / type de chambre** : camemberts ou barres
+  empilees montrant la ventilation des reservations par source
+  (direct, Booking, Airbnb...) et par type de chambre sur la periode.
+- **RevPAR par jour** : aujourd'hui RevPAR n'est affiché qu'en carte
+  agrégée (pas de série journalière). Pour un graphe RevPAR/jour il
+  faudrait exposer le nombre de chambres disponibles par jour dans
+  la série (actuellement non transmis par l'API).
+- **Resynchroniser la documentation** : services.md décrit un
+  `DashboardService` (renommé `KpiService`) et une occupation
+  physique (remplacée par occupation vendue). fixtures.md décrit
+  des statuts de chambres en dur (corrigés). Mettre à jour ces deux
+  fichiers pour refléter le code livré.
+- **Cache Redis sur les KPIs** : prevu Sprint 14 — rappel. Les
+  rapports sur de longues périodes (~365 jours) itèrent sur chaque
+  jour en PHP ; un cache courte durée (5 min) réduirait la charge.
+
+### Statuts de chambre — machine a etats
+- Le statut de chambre est aujourd'hui librement modifiable (PATCH
+  /rooms/{id}/status accepte toute valeur). Envisager des garde-fous
+  de transition : interdire/avertir si on marque AVAILABLE une chambre
+  avec un client CHECKED_IN, ou OCCUPIED sans reservation active.
+  Definir la matrice de transitions autorisees. Impact : coherence
+  renforcee entre statut physique et reservations.

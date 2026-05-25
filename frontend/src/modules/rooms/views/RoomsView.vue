@@ -123,8 +123,9 @@ const statusLabel: Record<RoomStatus, string> = {
         <div class="stat-value" style="color:var(--pms-blue);">{{ store.maintenanceCount }}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Taux occupation</div>
+        <div class="stat-label">Occupation physique</div>
         <div class="stat-value">{{ store.occupancyRate }}%</div>
+        <div class="t-muted" style="font-size:11px; margin-top:4px;">d'après statut des chambres</div>
       </div>
     </div>
 

@@ -6,6 +6,7 @@ use App\Hotel\Guest\Domain\Entity\Guest;
 use App\Hotel\Reservation\Domain\Entity\Reservation;
 use App\Hotel\Reservation\Domain\Enum\ReservationStatus;
 use App\Hotel\Room\Domain\Entity\Room;
+use App\Hotel\Room\Domain\Enum\RoomStatus;
 use App\Platform\Tenant\Domain\Entity\Tenant;
 use Doctrine\Bundle\FixturesBundle\Fixture;
 use Doctrine\Common\DataFixtures\DependentFixtureInterface;
@@ -125,6 +126,21 @@ class ReservationFixtures extends Fixture implements DependentFixtureInterface
 
             $manager->persist($res4);
             $this->addReference(self::RES_PAST_1, $res4);
+
+            // ── Dériver le statut OCCUPIED des réservations CHECKED_IN ──
+            // Marquer les chambres qui ont un client présent aujourd'hui.
+            $today = new \DateTimeImmutable('today', $tz);
+            $checkedInReservations = [$res1, $res3]; // les deux CHECKED_IN
+
+            foreach ($checkedInReservations as $res) {
+                if (
+                    $res->getStatus() === ReservationStatus::CHECKED_IN->value
+                    && $res->getCheckIn() <= $today
+                    && $res->getCheckOut() > $today
+                ) {
+                    $res->getRoom()->setStatusEnum(RoomStatus::OCCUPIED);
+                }
+            }
 
             $manager->flush();
 
