@@ -25,6 +25,7 @@ class AppFixtures extends Fixture implements DependentFixtureInterface
             ReservationFixtures::class,
             BillingFixtures::class,
             HousekeepingFixtures::class,
+            RateFixtures::class,
         ];
     }
 

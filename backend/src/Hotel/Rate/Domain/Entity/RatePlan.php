@@ -6,6 +6,7 @@ use App\Hotel\Property\Domain\Entity\HotelProfile;
 use App\Hotel\Room\Domain\Entity\RoomType;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
+use Symfony\Component\Serializer\Annotation\Groups;
 use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity]
@@ -16,6 +17,7 @@ class RatePlan
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
+    #[Groups(['rate:read'])]
     private Uuid $id;
 
     #[ORM\ManyToOne(targetEntity: HotelProfile::class)]
@@ -27,24 +29,31 @@ class RatePlan
     private ?RoomType $roomType = null;
 
     #[ORM\Column(length: 150)]
+    #[Groups(['rate:read'])]
     private string $name;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2)]
+    #[Groups(['rate:read'])]
     private string $baseRateXof;
 
     #[ORM\Column(options: ['default' => 1])]
+    #[Groups(['rate:read'])]
     private int $minNights = 1;
 
     #[ORM\Column(type: 'json', nullable: true)]
+    #[Groups(['rate:read'])]
     private ?array $conditions = null;
 
     #[ORM\Column(options: ['default' => true])]
+    #[Groups(['rate:read'])]
     private bool $isActive = true;
 
     #[ORM\Column(type: 'date_immutable', nullable: true)]
+    #[Groups(['rate:read'])]
     private ?\DateTimeImmutable $validFrom = null;
 
     #[ORM\Column(type: 'date_immutable', nullable: true)]
+    #[Groups(['rate:read'])]
     private ?\DateTimeImmutable $validTo = null;
 
     public function getId(): Uuid

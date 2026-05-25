@@ -2,16 +2,21 @@
 
 namespace App\Tests\Unit\Service;
 
+use App\Hotel\Billing\Domain\Service\InvoiceDraftService;
 use App\Hotel\Guest\Domain\Entity\Guest;
 use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
+use App\Hotel\Housekeeping\Domain\Entity\CleaningTask;
+use App\Hotel\Housekeeping\Infrastructure\Repository\CleaningTaskRepository;
+use App\Hotel\Property\Domain\Entity\HotelProfile;
+use App\Hotel\Rate\Domain\Service\PriceCalculator;
+use App\Hotel\Rate\Infrastructure\Repository\PromotionRepository;
+use App\Hotel\Rate\Infrastructure\Repository\RatePlanRepository;
+use App\Hotel\Rate\Infrastructure\Repository\SeasonalRateRepository;
 use App\Hotel\Reservation\Application\DTO\CreateReservationDTO;
 use App\Hotel\Reservation\Domain\Entity\Reservation;
 use App\Hotel\Reservation\Domain\Enum\ReservationStatus;
 use App\Hotel\Reservation\Domain\Service\ConflictChecker;
 use App\Hotel\Reservation\Domain\Service\ReservationEngine;
-use App\Hotel\Billing\Domain\Service\InvoiceDraftService;
-use App\Hotel\Housekeeping\Domain\Entity\CleaningTask;
-use App\Hotel\Housekeeping\Infrastructure\Repository\CleaningTaskRepository;
 use App\Hotel\Reservation\Infrastructure\Repository\ReservationRepository;
 use App\Hotel\Room\Domain\Entity\Room;
 use App\Hotel\Room\Domain\Entity\RoomType;
@@ -22,6 +27,7 @@ use App\Platform\Auth\Domain\Entity\StaffUser;
 use App\Shared\Exception\ConflictException;
 use App\Shared\Mercure\MercurePublisher;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\EntityRepository;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -40,6 +46,8 @@ class ReservationEngineTest extends TestCase
     private MockObject&CleaningTaskRepository $cleaningTaskRepo;
     private MockObject&LoggerInterface $logger;
     private MockObject&EntityManagerInterface $entityManager;
+    private MockObject&RatePlanRepository $ratePlanRepo;
+    private MockObject&PromotionRepository $promotionRepo;
     private MockObject&StaffUser $staff;
 
     protected function setUp(): void
@@ -54,6 +62,22 @@ class ReservationEngineTest extends TestCase
         $this->cleaningTaskRepo    = $this->createMock(CleaningTaskRepository::class);
         $this->logger              = $this->createMock(LoggerInterface::class);
         $this->entityManager       = $this->createMock(EntityManagerInterface::class);
+        $this->ratePlanRepo        = $this->createMock(RatePlanRepository::class);
+        $this->promotionRepo       = $this->createMock(PromotionRepository::class);
+
+        // Real PriceCalculator with mocked repos returning empty → base × nights
+        $seasonalRepo = $this->createMock(SeasonalRateRepository::class);
+        $seasonalRepo->method('findActiveForDate')->willReturn([]);
+        $priceCalculator = new PriceCalculator($seasonalRepo, $this->promotionRepo);
+
+        // Stub HotelProfile repository for resolveHotelId()
+        $hotelProfile = $this->createMock(HotelProfile::class);
+        $hotelProfile->method('getId')->willReturn(Uuid::v4());
+        $hotelProfileRepo = $this->createMock(EntityRepository::class);
+        $hotelProfileRepo->method('findOneBy')->willReturn($hotelProfile);
+        $this->entityManager->method('getRepository')
+            ->with(HotelProfile::class)
+            ->willReturn($hotelProfileRepo);
 
         $this->engine = new ReservationEngine(
             $this->reservationRepo,
@@ -66,6 +90,9 @@ class ReservationEngineTest extends TestCase
             $this->cleaningTaskRepo,
             $this->logger,
             $this->entityManager,
+            $priceCalculator,
+            $this->ratePlanRepo,
+            $this->promotionRepo,
         );
 
         $this->staff = $this->createMock(StaffUser::class);

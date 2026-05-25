@@ -98,6 +98,8 @@ class ReservationController extends AbstractApiController
         $dto->specialRequests = $data['specialRequests'] ?? null;
         $dto->source          = $data['source'] ?? 'direct';
         $dto->depositXof      = $data['depositXof'] ?? null;
+        $dto->ratePlanId      = $data['ratePlanId'] ?? null;
+        $dto->promoCode       = $data['promoCode'] ?? null;
 
         $errors = $this->validator->validate($dto);
         if (count($errors) > 0) {
@@ -143,6 +145,8 @@ class ReservationController extends AbstractApiController
         $dto->specialRequests = $data['specialRequests'] ?? null;
         $dto->source          = $data['source'] ?? null;
         $dto->depositXof      = $data['depositXof'] ?? null;
+        $dto->ratePlanId      = $data['ratePlanId'] ?? null;
+        $dto->promoCode       = $data['promoCode'] ?? null;
 
         $errors = $this->validator->validate($dto);
         if (count($errors) > 0) {

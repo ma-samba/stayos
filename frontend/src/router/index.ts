@@ -59,6 +59,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Ménage', module: 'housekeeping' },
   },
   {
+    path: '/rates',
+    name: 'rates',
+    component: () => import('@/modules/rates/views/RatesView.vue'),
+    meta: { requiresAuth: true, title: 'Tarifs', module: 'rates' },
+  },
+  {
     path: '/guests',
     name: 'guests',
     component: () => import('@/modules/guests/views/GuestsView.vue'),

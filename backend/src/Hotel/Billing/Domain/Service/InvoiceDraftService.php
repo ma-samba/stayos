@@ -30,13 +30,15 @@ class InvoiceDraftService
         }
 
         $nights = (int) $reservation->getCheckIn()->diff($reservation->getCheckOut())->days;
-        $rate   = $reservation->getRateXof();
 
-        // Le prix est TTC — on extrait la TVA depuis le total TTC
-        $totalTtc   = (float) $rate * $nights;
+        // Source de vérité : reservation.totalXof (inclut saison + promo)
+        $totalTtc   = (float) $reservation->getTotalXof();
         $taxRate    = (float) self::TAX_RATE;
         $subtotalHt = $totalTtc / (1 + $taxRate / 100);
         $taxXof     = $totalTtc - $subtotalHt;
+
+        // Prix moyen/nuit pour cohérence comptable de la ligne (quantity × unitPrice == total)
+        $unitPrice = $nights > 0 ? $totalTtc / $nights : $totalTtc;
 
         $invoice = new Invoice();
         $invoice->setReservation($reservation);
@@ -58,7 +60,7 @@ class InvoiceDraftService
             $nights > 1 ? 's' : '',
         ));
         $line->setQuantity($nights);
-        $line->setUnitPriceXof($rate);
+        $line->setUnitPriceXof(number_format($unitPrice, 2, '.', ''));
         $line->setTotalXof(number_format($totalTtc, 2, '.', ''));
         $line->setSortOrder(0);
 

@@ -65,6 +65,7 @@ export const useAuthStore = defineStore('auth', () => {
     reservations: ['MANAGER', 'RECEPTIONIST'],
     billing:      ['MANAGER', 'RECEPTIONIST', 'ACCOUNTANT'],
     housekeeping: ['MANAGER', 'RECEPTIONIST', 'HOUSEKEEPER'],
+    rates:        ['MANAGER'],
   }
 
   function canAccess(module: string): boolean {
@@ -78,6 +79,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (canAccess('reservations')) return '/reservations'
     if (canAccess('billing')) return '/invoices'
     if (canAccess('housekeeping')) return '/housekeeping'
+    if (canAccess('rates')) return '/rates'
     return '/login'
   }
 

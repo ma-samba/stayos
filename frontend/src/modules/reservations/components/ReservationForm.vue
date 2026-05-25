@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useReservationsStore } from '@/stores/reservations.store'
 import { roomService } from '@/services/room.service'
-import type { Room, Guest, Reservation } from '@/types/entities'
+import { rateService } from '@/services/rate.service'
+import type { Room, Guest, Reservation, PriceQuote, RatePlan } from '@/types/entities'
 import { formatCurrency } from '@/utils/currency'
 import api from '@/services/api.service'
 import type { ApiSuccess } from '@/types/entities'
@@ -31,9 +32,64 @@ const notes           = ref('')
 const specialRequests = ref('')
 const source          = ref('direct')
 const depositXof      = ref('')
+const promoCode       = ref('')
+const ratePlanId      = ref('')
+
+// ── Plans tarifaires ──
+
+const allPlans = ref<RatePlan[]>([])
+
+const filteredPlans = computed(() => {
+  const active = allPlans.value.filter(p => p.isActive)
+  if (!roomId.value) return active
+  const room = availableRooms.value.find(r => r.id === roomId.value)
+  if (!room) return active
+  return active.filter(p => !p.roomType || p.roomType.id === room.type.id)
+})
 
 const submitting = ref(false)
 const formError  = ref<string | null>(null)
+
+// ── Devis (quote) ──
+
+const quote          = ref<PriceQuote | null>(null)
+const quoteLoading   = ref(false)
+const promoInvalid   = ref(false)
+let quoteTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleQuote(): void {
+  if (quoteTimer) clearTimeout(quoteTimer)
+  quoteTimer = setTimeout(fetchQuote, 400)
+}
+
+async function fetchQuote(): Promise<void> {
+  if (!roomId.value || !checkIn.value || !checkOut.value) {
+    quote.value = null
+    return
+  }
+  quoteLoading.value = true
+  promoInvalid.value = false
+  try {
+    const result = await rateService.quote({
+      roomId:     roomId.value,
+      checkIn:    checkIn.value,
+      checkOut:   checkOut.value,
+      ratePlanId: ratePlanId.value || undefined,
+      promoCode:  promoCode.value || undefined,
+    })
+    quote.value = result
+    // Code saisi mais pas applique
+    if (promoCode.value && !result.appliedPromotionCode) {
+      promoInvalid.value = true
+    }
+  } catch {
+    quote.value = null
+  } finally {
+    quoteLoading.value = false
+  }
+}
+
+watch([roomId, checkIn, checkOut, ratePlanId, promoCode], scheduleQuote)
 
 // ── Chambres disponibles ──
 
@@ -190,6 +246,8 @@ async function submit(): Promise<void> {
       specialRequests: specialRequests.value || undefined,
       source:          source.value,
       depositXof:      depositXof.value || undefined,
+      ratePlanId:      ratePlanId.value || undefined,
+      promoCode:       promoCode.value || undefined,
     }
 
     if (props.reservation) {
@@ -212,7 +270,13 @@ async function submit(): Promise<void> {
 
 // ── Pré-remplissage en mode édition ──
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    allPlans.value = await rateService.listPlans()
+  } catch {
+    // Non-blocking
+  }
+
   if (props.reservation) {
     const r = props.reservation
     checkIn.value         = r.checkIn.slice(0, 10)
@@ -225,6 +289,13 @@ onMounted(() => {
     source.value          = r.source ?? 'direct'
     notes.value           = r.notes ?? ''
     specialRequests.value = r.specialRequests ?? ''
+
+    // Rehydrate plan + promo from stored breakdown
+    if (r.priceBreakdown) {
+      promoCode.value  = r.priceBreakdown.appliedPromotionCode ?? ''
+      ratePlanId.value = r.priceBreakdown.appliedRatePlanId ?? ''
+    }
+
     searchRooms()
   }
 })
@@ -385,6 +456,27 @@ onMounted(() => {
         </select>
       </div>
 
+      <!-- Plan tarifaire -->
+      <div v-if="filteredPlans.length > 0" class="input-wrap" style="margin-bottom:1rem;">
+        <label class="input-label">Plan tarifaire (optionnel)</label>
+        <select v-model="ratePlanId" class="select">
+          <option value="">Tarif standard</option>
+          <option v-for="plan in filteredPlans" :key="plan.id" :value="plan.id">
+            {{ plan.name }} — {{ formatCurrency(plan.baseRateXof) }}/nuit
+            {{ plan.roomType ? `(${plan.roomType.name})` : '' }}
+          </option>
+        </select>
+      </div>
+
+      <!-- Code promo -->
+      <div class="input-wrap" style="margin-bottom:1rem;">
+        <label class="input-label">Code promo (optionnel)</label>
+        <input v-model="promoCode" class="input" placeholder="OUVERTURE2026" style="text-transform:uppercase;" />
+        <span v-if="promoInvalid" class="input-hint" style="color:var(--pms-ink-3);">
+          Code non applicable
+        </span>
+      </div>
+
       <!-- Notes -->
       <div class="input-wrap" style="margin-bottom:1rem;">
         <label class="input-label">Notes (optionnel)</label>
@@ -396,16 +488,55 @@ onMounted(() => {
         <input v-model="specialRequests" class="input" placeholder="Étage élevé, lit bébé..." />
       </div>
 
-      <!-- Résumé du prix -->
+      <!-- Résumé du prix (devis) -->
       <div v-if="selectedRoom && nightsCount > 0" class="card-sand" style="padding:1rem; margin-bottom:1rem;">
-        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-          <span class="t-muted">{{ formatCurrency(selectedRoom.type.baseRateXof) }} x {{ nightsCount }} nuit{{ nightsCount > 1 ? 's' : '' }}</span>
-          <span style="font-weight:500;">{{ formatCurrency(liveTotalRaw) }}</span>
-        </div>
-        <div style="display:flex; justify-content:space-between; font-size:15px; font-weight:500; color:var(--pms-ink);">
-          <span>Total séjour</span>
-          <span>{{ formatCurrency(liveTotalRaw) }}</span>
-        </div>
+        <template v-if="quoteLoading">
+          <div style="text-align:center; color:var(--pms-ink-3); font-size:12px; padding:0.5rem 0;">
+            <span class="spinner" style="width:14px; height:14px; border-width:1.5px; display:inline-block; vertical-align:middle; margin-right:6px;"></span>
+            Calcul du tarif...
+          </div>
+        </template>
+        <template v-else-if="quote">
+          <!-- Sous-total -->
+          <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+            <span class="t-muted">{{ formatCurrency(quote.baseRateXof) }} x {{ quote.nights }} nuit{{ quote.nights > 1 ? 's' : '' }}</span>
+            <span style="font-weight:500;">{{ formatCurrency(Number(quote.baseRateXof) * quote.nights) }}</span>
+          </div>
+          <!-- Ajustement saisonnier -->
+          <div v-if="Number(quote.seasonalAdjustmentXof) !== 0" style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:12px;">
+            <span class="t-muted">
+              <i class="ti ti-sun" style="font-size:13px;"></i>
+              {{ quote.appliedSeasonalRateName ?? 'Ajustement saisonnier' }}
+            </span>
+            <span :style="Number(quote.seasonalAdjustmentXof) > 0 ? 'color:var(--pms-red);' : 'color:var(--pms-green);'">
+              {{ Number(quote.seasonalAdjustmentXof) > 0 ? '+' : '' }}{{ formatCurrency(quote.seasonalAdjustmentXof) }}
+            </span>
+          </div>
+          <!-- Remise promo -->
+          <div v-if="Number(quote.discountXof) !== 0" style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:12px;">
+            <span style="color:var(--pms-green);">
+              <i class="ti ti-discount-2" style="font-size:13px;"></i>
+              Promo {{ quote.appliedPromotionCode }}
+            </span>
+            <span style="color:var(--pms-green);">-{{ formatCurrency(quote.discountXof) }}</span>
+          </div>
+          <!-- Total -->
+          <div style="display:flex; justify-content:space-between; font-size:15px; font-weight:500; color:var(--pms-ink); border-top:0.5px solid var(--pms-border); padding-top:8px; margin-top:4px;">
+            <span>Total sejour</span>
+            <span>{{ formatCurrency(quote.totalXof) }}</span>
+          </div>
+        </template>
+        <template v-else>
+          <!-- Fallback sans quote -->
+          <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+            <span class="t-muted">{{ formatCurrency(selectedRoom.type.baseRateXof) }} x {{ nightsCount }} nuit{{ nightsCount > 1 ? 's' : '' }}</span>
+            <span style="font-weight:500;">{{ formatCurrency(liveTotalRaw) }}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:15px; font-weight:500; color:var(--pms-ink);">
+            <span>Total sejour</span>
+            <span>{{ formatCurrency(liveTotalRaw) }}</span>
+          </div>
+        </template>
       </div>
 
       <!-- Actions -->

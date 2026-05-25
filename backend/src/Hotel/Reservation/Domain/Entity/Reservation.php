@@ -81,6 +81,10 @@ class Reservation
     #[Groups(['reservation:read'])]
     private ?string $specialRequests = null;
 
+    #[ORM\Column(type: 'json', nullable: true)]
+    #[Groups(['reservation:detail', 'invoice:detail'])]
+    private ?array $priceBreakdown = null;
+
     #[ORM\Column(nullable: true)]
     #[Groups(['reservation:read'])]
     private ?\DateTimeImmutable $checkedInAt = null;
@@ -282,6 +286,17 @@ class Reservation
     public function setSpecialRequests(?string $specialRequests): self
     {
         $this->specialRequests = $specialRequests;
+        return $this;
+    }
+
+    public function getPriceBreakdown(): ?array
+    {
+        return $this->priceBreakdown;
+    }
+
+    public function setPriceBreakdown(?array $priceBreakdown): self
+    {
+        $this->priceBreakdown = $priceBreakdown;
         return $this;
     }
 

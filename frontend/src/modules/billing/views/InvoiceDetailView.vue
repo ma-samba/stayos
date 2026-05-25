@@ -434,6 +434,41 @@ onMounted(async () => {
         </table>
       </div>
 
+      <!-- ── Détail tarifaire (usage interne) ── -->
+      <div v-if="invoice.reservation?.priceBreakdown" class="card-sand" style="padding:1.25rem; margin-bottom:1rem;">
+        <div style="font-size:11px; font-weight:500; color:var(--pms-ink-3); letter-spacing:0.04em; text-transform:uppercase; margin-bottom:10px;">
+          Détail tarifaire <span style="text-transform:none; font-weight:400;">(usage interne)</span>
+        </div>
+        <!-- Socle : base × nuits -->
+        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+          <span class="t-muted">{{ formatCurrency(invoice.reservation.priceBreakdown.baseRateXof) }} x {{ invoice.reservation.priceBreakdown.nights }} nuit{{ invoice.reservation.priceBreakdown.nights > 1 ? 's' : '' }}</span>
+          <span style="font-weight:500;">{{ formatCurrency(Number(invoice.reservation.priceBreakdown.baseRateXof) * invoice.reservation.priceBreakdown.nights) }}</span>
+        </div>
+        <!-- Ajustement saisonnier -->
+        <div v-if="Number(invoice.reservation.priceBreakdown.seasonalAdjustmentXof) !== 0" style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:12px;">
+          <span class="t-muted">
+            <i class="ti ti-sun" style="font-size:13px;"></i>
+            {{ invoice.reservation.priceBreakdown.appliedSeasonalRateName ?? 'Ajustement saisonnier' }}
+          </span>
+          <span :style="Number(invoice.reservation.priceBreakdown.seasonalAdjustmentXof) > 0 ? 'color:var(--pms-red);' : 'color:var(--pms-green);'">
+            {{ Number(invoice.reservation.priceBreakdown.seasonalAdjustmentXof) > 0 ? '+' : '' }}{{ formatCurrency(invoice.reservation.priceBreakdown.seasonalAdjustmentXof) }}
+          </span>
+        </div>
+        <!-- Remise promo -->
+        <div v-if="Number(invoice.reservation.priceBreakdown.discountXof) !== 0" style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:12px;">
+          <span style="color:var(--pms-green);">
+            <i class="ti ti-discount-2" style="font-size:13px;"></i>
+            Promo {{ invoice.reservation.priceBreakdown.appliedPromotionCode }}
+          </span>
+          <span style="color:var(--pms-green);">-{{ formatCurrency(invoice.reservation.priceBreakdown.discountXof) }}</span>
+        </div>
+        <!-- Total séjour -->
+        <div style="display:flex; justify-content:space-between; font-weight:500; color:var(--pms-ink); border-top:0.5px solid var(--pms-border); padding-top:8px; margin-top:4px;">
+          <span>Total séjour</span>
+          <span>{{ formatCurrency(invoice.reservation.priceBreakdown.totalXof) }}</span>
+        </div>
+      </div>
+
       <!-- ── Bloc totaux ── -->
       <div class="card-sand" style="padding:1.25rem; margin-bottom:1rem;">
         <div style="display:flex; justify-content:space-between; margin-bottom:6px;">

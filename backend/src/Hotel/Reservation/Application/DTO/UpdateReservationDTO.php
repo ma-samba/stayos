@@ -28,4 +28,9 @@ class UpdateReservationDTO
     public ?string $specialRequests = null;
     public ?string $source = null;
     public ?string $depositXof = null;
+
+    #[Assert\Uuid]
+    public ?string $ratePlanId = null;
+
+    public ?string $promoCode = null;
 }

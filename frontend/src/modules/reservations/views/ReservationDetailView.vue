@@ -182,14 +182,47 @@ onMounted(load)
 
       <!-- Bloc tarif -->
       <div class="card-sand" style="padding:1.25rem; margin-bottom:1rem;">
-        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-          <span class="t-muted">Tarif / nuit</span>
-          <span>{{ formatCurrency(reservation.rateXof) }}</span>
-        </div>
-        <div style="display:flex; justify-content:space-between; font-size:16px; font-weight:500; color:var(--pms-ink);">
-          <span>Total séjour</span>
-          <span>{{ formatCurrency(reservation.totalXof) }}</span>
-        </div>
+        <template v-if="reservation.priceBreakdown">
+          <!-- Socle : base × nuits -->
+          <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+            <span class="t-muted">{{ formatCurrency(reservation.priceBreakdown.baseRateXof) }} x {{ reservation.priceBreakdown.nights }} nuit{{ reservation.priceBreakdown.nights > 1 ? 's' : '' }}</span>
+            <span style="font-weight:500;">{{ formatCurrency(Number(reservation.priceBreakdown.baseRateXof) * reservation.priceBreakdown.nights) }}</span>
+          </div>
+          <!-- Ajustement saisonnier -->
+          <div v-if="Number(reservation.priceBreakdown.seasonalAdjustmentXof) !== 0" style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:12px;">
+            <span class="t-muted">
+              <i class="ti ti-sun" style="font-size:13px;"></i>
+              {{ reservation.priceBreakdown.appliedSeasonalRateName ?? 'Ajustement saisonnier' }}
+            </span>
+            <span :style="Number(reservation.priceBreakdown.seasonalAdjustmentXof) > 0 ? 'color:var(--pms-red);' : 'color:var(--pms-green);'">
+              {{ Number(reservation.priceBreakdown.seasonalAdjustmentXof) > 0 ? '+' : '' }}{{ formatCurrency(reservation.priceBreakdown.seasonalAdjustmentXof) }}
+            </span>
+          </div>
+          <!-- Remise promo -->
+          <div v-if="Number(reservation.priceBreakdown.discountXof) !== 0" style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:12px;">
+            <span style="color:var(--pms-green);">
+              <i class="ti ti-discount-2" style="font-size:13px;"></i>
+              Promo {{ reservation.priceBreakdown.appliedPromotionCode }}
+            </span>
+            <span style="color:var(--pms-green);">-{{ formatCurrency(reservation.priceBreakdown.discountXof) }}</span>
+          </div>
+          <!-- Total -->
+          <div style="display:flex; justify-content:space-between; font-size:16px; font-weight:500; color:var(--pms-ink); border-top:0.5px solid var(--pms-border); padding-top:8px; margin-top:4px;">
+            <span>Total sejour</span>
+            <span>{{ formatCurrency(reservation.priceBreakdown.totalXof) }}</span>
+          </div>
+        </template>
+        <template v-else>
+          <!-- Fallback pour les reservations sans breakdown -->
+          <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+            <span class="t-muted">Tarif / nuit</span>
+            <span>{{ formatCurrency(reservation.rateXof) }}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:16px; font-weight:500; color:var(--pms-ink);">
+            <span>Total sejour</span>
+            <span>{{ formatCurrency(reservation.totalXof) }}</span>
+          </div>
+        </template>
       </div>
 
       <!-- Notes -->

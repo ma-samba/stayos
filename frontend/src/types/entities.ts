@@ -15,6 +15,7 @@ export interface RoomType {
   name: string
   baseRateXof: string
   maxOccupancy: number
+  description?: string | null
 }
 
 export interface Room {
@@ -67,6 +68,7 @@ export interface Reservation {
   checkedOutAt: string | null
   guest: Guest
   room: Room
+  priceBreakdown?: PriceBreakdown | null
 }
 
 export interface ReservationGantt {
@@ -93,6 +95,8 @@ export interface CreateReservationPayload {
   specialRequests?: string
   source?: string
   depositXof?: string
+  ratePlanId?: string
+  promoCode?: string
 }
 
 export interface UpdateReservationPayload {
@@ -106,6 +110,8 @@ export interface UpdateReservationPayload {
   specialRequests?: string
   source?: string
   depositXof?: string
+  ratePlanId?: string
+  promoCode?: string
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -152,6 +158,7 @@ export interface Invoice {
     confirmationNumber: string
     guest?: Guest
     room?: { id: string; number: string; type?: { name: string } }
+    priceBreakdown?: PriceBreakdown | null
   }
   lines?: InvoiceLine[]
   payments?: Payment[]
@@ -193,6 +200,75 @@ export interface TaskUpdatedEvent {
   taskId: string
   roomNumber: string
   status: CleaningStatus
+}
+
+// ──────────────────────────────────────────────────────────────
+//  Tarifs & Promotions
+// ──────────────────────────────────────────────────────────────
+
+export interface RatePlan {
+  id: string
+  name: string
+  baseRateXof: string
+  roomType?: RoomType | null
+  minNights: number
+  conditions?: Record<string, unknown> | null
+  isActive: boolean
+  validFrom: string | null
+  validTo: string | null
+}
+
+export interface SeasonalRate {
+  id: string
+  name: string
+  type: 'multiplier' | 'absolute'
+  value: string
+  roomType?: RoomType | null
+  startDate: string
+  endDate: string
+  priority: number
+  isActive: boolean
+}
+
+export interface Promotion {
+  id: string
+  code: string
+  description: string | null
+  type: 'percentage' | 'fixed'
+  value: string
+  maxDiscountXof: string | null
+  minNights: number
+  minAmountXof: string | null
+  validFrom: string | null
+  validTo: string | null
+  maxUses: number | null
+  isActive: boolean
+}
+
+export interface PriceQuote {
+  baseRateXof: string
+  nights: number
+  subtotalXof: string
+  seasonalAdjustmentXof: string
+  discountXof: string
+  totalXof: string
+  appliedSeasonalRateName: string | null
+  appliedPromotionCode: string | null
+  appliedRatePlanId: string | null
+  breakdown: Array<{ date: string; rate: string }>
+}
+
+export interface PriceBreakdown {
+  baseRateXof: string
+  nights: number
+  subtotalXof: string
+  seasonalAdjustmentXof: string
+  discountXof: string
+  totalXof: string
+  appliedSeasonalRateName: string | null
+  appliedPromotionCode: string | null
+  appliedRatePlanId?: string | null
+  breakdown: Array<{ date: string; rate: string }>
 }
 
 // ──────────────────────────────────────────────────────────────

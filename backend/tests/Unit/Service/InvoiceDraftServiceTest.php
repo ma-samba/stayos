@@ -31,11 +31,14 @@ class InvoiceDraftServiceTest extends TestCase
         );
     }
 
-    private function makeReservation(string $rate = '55000.00', int $nights = 5): Reservation
+    private function makeReservation(string $rate = '55000.00', int $nights = 5, ?string $totalXof = null): Reservation
     {
         $tz = new \DateTimeZone('Africa/Dakar');
         $checkIn  = new \DateTimeImmutable('2026-06-01', $tz);
         $checkOut = $checkIn->modify("+{$nights} days");
+
+        // totalXof defaults to rate × nights (base case, no season/promo)
+        $total = $totalXof ?? number_format((float) $rate * $nights, 2, '.', '');
 
         $room = $this->createMock(Room::class);
         $room->method('getNumber')->willReturn('205');
@@ -45,6 +48,7 @@ class InvoiceDraftServiceTest extends TestCase
         $reservation->method('getCheckIn')->willReturn($checkIn);
         $reservation->method('getCheckOut')->willReturn($checkOut);
         $reservation->method('getRateXof')->willReturn($rate);
+        $reservation->method('getTotalXof')->willReturn($total);
         $reservation->method('getRoom')->willReturn($room);
 
         return $reservation;

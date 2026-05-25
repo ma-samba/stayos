@@ -7,11 +7,17 @@ use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
 use App\Hotel\Housekeeping\Domain\Entity\CleaningTask;
 use App\Hotel\Housekeeping\Domain\Enum\CleaningType;
 use App\Hotel\Housekeeping\Infrastructure\Repository\CleaningTaskRepository;
+use App\Hotel\Property\Domain\Entity\HotelProfile;
+use App\Hotel\Rate\Domain\DTO\PriceQuote;
+use App\Hotel\Rate\Domain\Service\PriceCalculator;
+use App\Hotel\Rate\Infrastructure\Repository\PromotionRepository;
+use App\Hotel\Rate\Infrastructure\Repository\RatePlanRepository;
 use App\Hotel\Reservation\Application\DTO\CreateReservationDTO;
 use App\Hotel\Reservation\Application\DTO\UpdateReservationDTO;
 use App\Hotel\Reservation\Domain\Entity\Reservation;
 use App\Hotel\Reservation\Domain\Enum\ReservationStatus;
 use App\Hotel\Reservation\Infrastructure\Repository\ReservationRepository;
+use App\Hotel\Room\Domain\Entity\Room;
 use App\Hotel\Room\Domain\Enum\RoomStatus;
 use App\Hotel\Room\Infrastructure\Repository\RoomRepository;
 use App\Hotel\Shared\Domain\Service\AuditService;
@@ -21,6 +27,7 @@ use App\Shared\Mercure\MercurePublisher;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Uid\Uuid;
 
 class ReservationEngine
 {
@@ -35,6 +42,9 @@ class ReservationEngine
         private readonly CleaningTaskRepository $cleaningTaskRepository,
         private readonly LoggerInterface        $logger,
         private readonly EntityManagerInterface $entityManager,
+        private readonly PriceCalculator        $priceCalculator,
+        private readonly RatePlanRepository     $ratePlanRepository,
+        private readonly PromotionRepository    $promotionRepository,
     ) {}
 
     public function create(CreateReservationDTO $dto, ?StaffUser $staff): Reservation
@@ -51,9 +61,7 @@ class ReservationEngine
 
         $this->conflictChecker->assertAvailable((string) $room->getId(), $checkIn, $checkOut);
 
-        $nights = (int) $checkIn->diff($checkOut)->days;
-        $rateXof = $room->getType()->getBaseRateXof();
-        $totalXof = number_format((float) $rateXof * $nights, 2, '.', '');
+        $quote = $this->computeQuote($room, $checkIn, $checkOut, $dto->ratePlanId, $dto->promoCode, consumePromo: true);
 
         $reservation = new Reservation();
         $reservation
@@ -64,8 +72,9 @@ class ReservationEngine
             ->setCheckOut($checkOut)
             ->setAdults($dto->adults)
             ->setChildren($dto->children)
-            ->setRateXof($rateXof)
-            ->setTotalXof($totalXof)
+            ->setRateXof($quote->baseRateXof)
+            ->setTotalXof($quote->totalXof)
+            ->setPriceBreakdown($quote->toArray())
             ->setSource($dto->source)
             ->setStatusEnum(ReservationStatus::CONFIRMED);
 
@@ -91,7 +100,7 @@ class ReservationEngine
                 'guest'              => $guest->getFullName(),
                 'checkIn'            => $dto->checkIn,
                 'checkOut'           => $dto->checkOut,
-                'totalXof'           => $totalXof,
+                'totalXof'           => $quote->totalXof,
             ],
             staffUser: $staff,
         );
@@ -184,12 +193,21 @@ class ReservationEngine
             $reservation->setDepositXof($dto->depositXof);
         }
 
-        // Recalculer le total si dates ou chambre changent
-        if ($dto->roomId !== null || $dto->checkIn !== null || $dto->checkOut !== null) {
-            $nights = (int) $reservation->getCheckIn()->diff($reservation->getCheckOut())->days;
-            $rateXof = $reservation->getRoom()->getType()->getBaseRateXof();
-            $reservation->setRateXof($rateXof);
-            $reservation->setTotalXof(number_format((float) $rateXof * $nights, 2, '.', ''));
+        // Recalculer le total si dates, chambre, ratePlan ou promoCode changent
+        // Si ratePlanId/promoCode non fournis dans le DTO, recalcul sans promo/plan (comportement explicite)
+        if ($dto->roomId !== null || $dto->checkIn !== null || $dto->checkOut !== null
+            || $dto->ratePlanId !== null || $dto->promoCode !== null) {
+            $quote = $this->computeQuote(
+                $reservation->getRoom(),
+                $reservation->getCheckIn(),
+                $reservation->getCheckOut(),
+                $dto->ratePlanId,
+                $dto->promoCode,
+                consumePromo: false,
+            );
+            $reservation->setRateXof($quote->baseRateXof);
+            $reservation->setTotalXof($quote->totalXof);
+            $reservation->setPriceBreakdown($quote->toArray());
         }
 
         $this->auditService->log(
@@ -357,5 +375,55 @@ class ReservationEngine
         }
 
         return $reservation;
+    }
+
+    /**
+     * Calcule le tarif via PriceCalculator et consomme éventuellement la promo.
+     */
+    private function computeQuote(
+        Room               $room,
+        \DateTimeImmutable  $checkIn,
+        \DateTimeImmutable  $checkOut,
+        ?string             $ratePlanId,
+        ?string             $promoCode,
+        bool                $consumePromo,
+    ): PriceQuote {
+        $hotelId = $this->resolveHotelId();
+
+        $ratePlan = null;
+        if ($ratePlanId !== null) {
+            $ratePlan = $this->ratePlanRepository->find(Uuid::fromString($ratePlanId));
+        }
+
+        $quote = $this->priceCalculator->quote(
+            $hotelId,
+            $room->getType(),
+            $checkIn,
+            $checkOut,
+            $ratePlan,
+            $promoCode,
+        );
+
+        // Incrémenter usedCount si la promo a été effectivement appliquée
+        if ($consumePromo && $quote->appliedPromotionCode !== null) {
+            $promo = $this->promotionRepository->findOneActiveByCode($hotelId, $quote->appliedPromotionCode);
+            if ($promo !== null && ($promo->getMaxUses() === null || $promo->getUsedCount() < $promo->getMaxUses())) {
+                $promo->setUsedCount($promo->getUsedCount() + 1);
+            }
+        }
+
+        return $quote;
+    }
+
+    private function resolveHotelId(): Uuid
+    {
+        // Un seul HotelProfile par schema tenant (pattern existant, cf. InvoiceService)
+        $hotel = $this->entityManager->getRepository(HotelProfile::class)->findOneBy([]);
+
+        if ($hotel === null) {
+            throw new BusinessRuleException('Profil hôtel introuvable.');
+        }
+
+        return $hotel->getId();
     }
 }

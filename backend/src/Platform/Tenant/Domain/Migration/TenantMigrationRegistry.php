@@ -9,6 +9,8 @@ use DoctrineMigrations\Tenant\Version20260520140000AddGuestDocumentUrl;
 use DoctrineMigrations\Tenant\Version20260520150000AddPaymentGatewayFields;
 use DoctrineMigrations\Tenant\Version20260520160000AddPaymentCallbackSecret;
 use DoctrineMigrations\Tenant\Version20260520170000UpdatePaymentMethodCheck;
+use DoctrineMigrations\Tenant\Version20260524000000CreateRateEntities;
+use DoctrineMigrations\Tenant\Version20260524100000AddReservationPriceBreakdown;
 
 /**
  * Registre ordonné de toutes les migrations tenant.
@@ -28,6 +30,8 @@ class TenantMigrationRegistry
             new Version20260520150000AddPaymentGatewayFields(),
             new Version20260520160000AddPaymentCallbackSecret(),
             new Version20260520170000UpdatePaymentMethodCheck(),
+            new Version20260524000000CreateRateEntities(),
+            new Version20260524100000AddReservationPriceBreakdown(),
         ];
     }
 

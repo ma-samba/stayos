@@ -5,9 +5,9 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **Sprint 9 — Tarifs & promotions**
+- Sprint courant : **Sprint 10 — Dashboard & rapports**
 - Dernière mise à jour : 24 mai 2026
-- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8
+- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9
 
 ---
 
@@ -269,28 +269,36 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### ⬜ Sprint 9 — Tarifs & promotions
+### ✅ Sprint 9 — Tarifs & promotions
 **Objectif** : plans tarifaires, tarifs saisonniers, codes promo.
 
 **Backend**
-- [ ] `RatePlanController` — CRUD plans tarifaires
-- [ ] `SeasonalRateController` — tarifs par période
-- [ ] `PromotionController` — codes promo avec règles
-- [ ] `PriceCalculator` — saisonnalité + promos intégrées
-- [ ] Feature flag `revenue_management` (Plan Pro)
+- [x] `PriceCalculator` isolé — calcul PAR NUIT (saison partielle), bcmath integral, arrondi FCFA
+- [x] Saisonnier mixte : multiplicateur OU absolu, resolution par priorite
+- [x] Promotions avancees : conditions par type de chambre/plan, plafond, min nuits, min montant, usage limite
+- [x] `priceBreakdown` JSON sur Reservation (trace figee du calcul) + migration tenant
+- [x] Branchement `ReservationEngine` (create/update) + consommation `usedCount` atomique a la creation
+- [x] `InvoiceDraftService` lit `reservation.totalXof` (source de verite) — divergence facture/reservation corrigee
+- [x] `RateController` — CRUD plans + saisonniers + endpoint POST /api/rates/quote (devis live, ne consomme pas)
+- [x] `PromotionController` — CRUD promotions (soft delete)
+- [x] `FeatureChecker` service — `revenue_management` sur ecriture des tarifs ; lecture et devis libres
+- [x] `TenantAwarePurger` rendu auto-adaptatif (information_schema) — plus de liste de tables en dur
 
 **Frontend**
-- [ ] `RatesView.vue` — plans + calendrier tarifaire
-- [ ] `SeasonalRateForm.vue` — période + tarif
-- [ ] `PromotionForm.vue` — code promo
+- [x] `RatesView.vue` — 3 onglets (Plans / Saisonniers / Promos) avec tables, badges, actions
+- [x] `RatePlanForm.vue` — creation/edition plan tarifaire
+- [x] `SeasonalRateForm.vue` — formulaire avec label dynamique multiplicateur/absolu
+- [x] `PromotionForm.vue` — formulaire avec conditions avancees repliables
+- [x] Devis live dans `ReservationForm.vue` — code promo, appel quote debounce, recap prix avec saisonnier/promo
+- [x] Garde feature : bandeau "Fonctionnalite Plan Pro" + boutons desactives si plan Starter
 
 **Tests**
-- [ ] `PriceCalculatorTest` — haute saison appliquée
-- [ ] `PriceCalculatorTest` — promo valide réduit le total
-- [ ] `PriceCalculatorTest` — promo expirée ignorée
-- [ ] `RateAccessTest` — STARTER ne peut pas accéder aux tarifs avancés
+- [x] `PriceCalculatorTest` — 17 tests unitaires (saison, promo, mixte, arrondi, edge cases, robustesse time)
+- [x] `ReservationPricingTest` — 5 tests integration (seasonal, promo usedCount, update recalcul, invoice coherence)
+- [x] `RateControllerTest` — 9 tests fonctionnels (auth gating, CRUD, quote, cross-tenant, feature flag STARTER/PRO)
+- [x] `PromotionControllerTest` — 5 tests fonctionnels (auth, create, doublon 409, soft delete, housekeeper 403)
 
-**Livrable** : revenue management basique opérationnel
+**Livrable** : revenue management complet, 36 tests dedies, devis live dans le formulaire de reservation
 
 ---
 
@@ -458,3 +466,32 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   manuellement tâche par tâche ? par zone/étage attribué à chaque
   agent ? automatiquement à la génération des tâches ? À trancher avant
   d'implémenter l'UI.
+
+### Tarification — affinements reportes
+- **Promo conservee a la modification de reservation** : aujourd'hui un
+  `update()` de reservation sans promoCode/ratePlanId recalcule SANS la
+  promo (la remise saute si on change juste les dates). Comportement
+  explicite choisi pour le Sprint 9. A affiner : memoriser la promo/le
+  plan appliques sur la reservation et les reutiliser au recalcul, ou
+  demander confirmation a l'utilisateur.
+- **Ligne de facture detaillee** : `InvoiceDraftService` genere une
+  ligne unique au total reel. Ameliorer en decomposant (tarif de base,
+  ajustement saisonnier, remise promo) en plusieurs lignes lisibles sur
+  la facture. Le detail existe deja dans `reservation.priceBreakdown` —
+  il suffit de le rendre.
+- **Feature-gating complet (Sprint 12)** : le `FeatureChecker` actuel
+  ne garde QUE l'ecriture des tarifs. Au Sprint 12 (Abonnements),
+  generaliser le gating a toutes les features Pro (`advanced_reports`,
+  `channel_manager`, `multi_property`, `api_access`) via un mecanisme
+  transverse (attribut/voter Symfony plutot qu'appels manuels
+  `assertEnabled` dans chaque controller), et ajouter
+  `FeatureGuardTest`.
+- **Ciblage type de chambre pour les tarifs saisonniers** : comme les
+  plans, `SeasonalRate` a un champ `roomType` nullable cote backend mais
+  `SeasonalRateForm` ne l'expose pas (toutes les saisons visent "tous
+  les types" via l'UI). Ajouter le selecteur si le besoin d'une saison
+  specifique a un type emerge.
+- **Conditions avancees des promotions dans l'UI** : `PromotionDTO`
+  accepte `applicableRoomTypeIds` / `applicableRatePlanIds` (restriction
+  d'une promo a certains types/plans), mais `PromotionForm` ne les
+  expose pas encore. A ajouter si le besoin de ciblage fin se confirme.
