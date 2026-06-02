@@ -17,6 +17,8 @@ use App\Hotel\Billing\Domain\Service\PaydunyaWebhookHandler;
 use App\Platform\Tenant\Domain\Entity\Tenant;
 use App\Platform\Tenant\Infrastructure\Doctrine\TenantRepository;
 use App\Shared\Email\EmailService;
+use App\Shared\Mercure\MercurePublisher;
+use App\Shared\TenantContext;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\EntityRepository;
@@ -33,6 +35,8 @@ class PaydunyaWebhookHandlerTest extends TestCase
     private Connection&MockObject $connection;
     private InvoiceService&MockObject $invoiceService;
     private EmailService&MockObject $emailService;
+    private MercurePublisher&MockObject $mercure;
+    private TenantContext&MockObject $tenantContext;
     private PaydunyaWebhookHandler $handler;
 
     private const SECRET     = 'correct_secret_abc123';
@@ -48,6 +52,8 @@ class PaydunyaWebhookHandlerTest extends TestCase
         $this->connection = $this->createMock(Connection::class);
         $this->invoiceService = $this->createMock(InvoiceService::class);
         $this->emailService = $this->createMock(EmailService::class);
+        $this->mercure = $this->createMock(MercurePublisher::class);
+        $this->tenantContext = $this->createMock(TenantContext::class);
 
         $this->handler = new PaydunyaWebhookHandler(
             $this->gatewayRegistry,
@@ -56,6 +62,8 @@ class PaydunyaWebhookHandlerTest extends TestCase
             $this->connection,
             $this->invoiceService,
             $this->emailService,
+            $this->mercure,
+            $this->tenantContext,
             new NullLogger(),
         );
     }

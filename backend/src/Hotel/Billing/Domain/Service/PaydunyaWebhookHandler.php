@@ -11,6 +11,8 @@ use App\Hotel\Billing\Domain\Enum\PaymentStatus;
 use App\Hotel\Billing\Domain\Gateway\PaymentGatewayRegistry;
 use App\Platform\Tenant\Infrastructure\Doctrine\TenantRepository;
 use App\Shared\Email\EmailService;
+use App\Shared\Mercure\MercurePublisher;
+use App\Shared\TenantContext;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
@@ -33,6 +35,8 @@ class PaydunyaWebhookHandler
         private readonly Connection               $connection,
         private readonly InvoiceService           $invoiceService,
         private readonly EmailService             $emailService,
+        private readonly MercurePublisher         $mercurePublisher,
+        private readonly TenantContext            $tenantContext,
         #[Target('business')] private readonly LoggerInterface $logger,
     ) {}
 
@@ -75,6 +79,9 @@ class PaydunyaWebhookHandler
             $this->connection->executeStatement(
                 \sprintf('SET search_path TO %s, public', $schemaName)
             );
+
+            // Set TenantContext so MercurePublisher can namespace topics
+            $this->tenantContext->set($tenant);
 
             $this->processPayment($payload, $providedSecret, $tenantSlug);
         } catch (\Throwable $e) {
@@ -215,8 +222,18 @@ class PaydunyaWebhookHandler
             ]);
         });
 
-        // 11. Email non-bloquant APRES le commit (pas dans la transaction)
+        // 11. Notification temps réel APRES le commit
         $invoice = $payment->getInvoice();
+        $this->mercurePublisher->publish('payment.received', [
+            'invoiceId'     => (string) $invoice->getId(),
+            'invoiceNumber' => $invoice->getNumber(),
+            'amountXof'     => $payment->getAmountXof(),
+            'method'        => $payment->getMethod(),
+            'guestName'     => $invoice->getReservation()?->getGuest()?->getFullName(),
+            'paidAt'        => $payment->getPaidAt()?->format('c'),
+        ]);
+
+        // 12. Email non-bloquant APRES le commit (pas dans la transaction)
         try {
             $pdfContent = $this->invoiceService->generatePdf($invoice);
             $this->emailService->sendInvoice($invoice, $pdfContent);

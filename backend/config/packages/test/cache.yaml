@@ -1,0 +1,7 @@
+framework:
+    cache:
+        # En env test, le cache app est en mémoire — chaque createClient()
+        # réinstancie le kernel et donc le storage. Cela isole l'état du
+        # rate limiter entre tests (sinon les compteurs filesystem persistent
+        # d'un test à l'autre dans le même run, et entre runs).
+        app: cache.adapter.array

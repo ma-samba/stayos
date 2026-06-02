@@ -13,7 +13,12 @@ export const useRoomsStore = defineStore('rooms', () => {
   const rooms       = ref<Room[]>([])
   const loading     = ref(false)
   const error       = ref<string | null>(null)
-  let   unsubscribe: (() => void) | null = null
+
+  // ── Refcount Mercure ──────────────────────────────────────
+  // Plusieurs vues peuvent partager le store. On ouvre l'EventSource
+  // au premier subscribeLive() et on le ferme au dernier unsubscribeLive().
+  let liveRefCount = 0
+  let unsubStatus: (() => void) | null = null
 
   // ── Computed ──────────────────────────────────────────────
 
@@ -47,7 +52,7 @@ export const useRoomsStore = defineStore('rooms', () => {
 
     try {
       rooms.value = await roomService.getAll()
-    } catch (e: unknown) {
+    } catch {
       error.value = 'Impossible de charger les chambres'
     } finally {
       loading.value = false
@@ -67,35 +72,40 @@ export const useRoomsStore = defineStore('rooms', () => {
   }
 
   /**
-   * Démarre l'abonnement Mercure pour les mises à jour de statut en temps réel.
-   * Doit être appelé après le chargement initial des chambres.
+   * Patch local du statut d'une chambre. Appelé par le handler Mercure
+   * sans refetch — la chambre doit déjà être dans `rooms` (sinon
+   * l'event ne concerne pas la liste courante).
    */
-  function subscribeToMercure(): void {
-    const authStore = useAuthStore()
-    const tenantId  = authStore.tenantId
-
-    if (!tenantId) return
-
-    const topic = mercureService.buildTopic(tenantId, 'room.status.changed')
-
-    unsubscribe = mercureService.subscribe<RoomStatusChangedEvent>(
-      topic,
-      (event) => {
-        const room = rooms.value.find(r => r.id === event.roomId)
-        if (room) {
-          room.status = event.status
-        }
-      },
-    )
+  function patchRoomStatusLocal(roomId: string, status: RoomStatus): void {
+    const room = rooms.value.find(r => r.id === roomId)
+    if (room) room.status = status
   }
 
   /**
-   * Arrête l'abonnement Mercure (à appeler lors du démontage du composant).
+   * Démarre l'écoute live (idempotent via refcount).
    */
-  function unsubscribeFromMercure(): void {
-    if (unsubscribe) {
-      unsubscribe()
-      unsubscribe = null
+  function subscribeLive(): void {
+    liveRefCount++
+    if (unsubStatus) return
+
+    const auth = useAuthStore()
+    const tenantId = auth.tenantId
+    if (!tenantId) return
+
+    const topic = mercureService.buildTopic(tenantId, 'room.status.changed')
+    unsubStatus = mercureService.subscribe<RoomStatusChangedEvent>(topic, (event) => {
+      patchRoomStatusLocal(event.roomId, event.status)
+    })
+  }
+
+  /**
+   * Arrête l'écoute live (décrément refcount, fermeture au 0).
+   */
+  function unsubscribeLive(): void {
+    if (liveRefCount > 0) liveRefCount--
+    if (liveRefCount === 0 && unsubStatus) {
+      unsubStatus()
+      unsubStatus = null
     }
   }
 
@@ -111,7 +121,7 @@ export const useRoomsStore = defineStore('rooms', () => {
     occupancyRate,
     fetchRooms,
     updateRoomStatus,
-    subscribeToMercure,
-    unsubscribeFromMercure,
+    subscribeLive,
+    unsubscribeLive,
   }
 })

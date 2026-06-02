@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useReservationsStore } from '@/stores/reservations.store'
 import type { ReservationStatus, Reservation } from '@/types/entities'
@@ -124,6 +124,11 @@ async function onCheckOutDone(): Promise<void> {
 
 onMounted(() => {
   store.fetchReservations()
+  store.subscribeLive()
+})
+
+onUnmounted(() => {
+  store.unsubscribeLive()
 })
 </script>
 

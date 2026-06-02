@@ -71,11 +71,11 @@ async function confirmStatusChange(): Promise<void> {
 
 onMounted(async () => {
   await store.fetchRooms()
-  store.subscribeToMercure()
+  store.subscribeLive()
 })
 
 onUnmounted(() => {
-  store.unsubscribeFromMercure()
+  store.unsubscribeLive()
 })
 
 // ──────────────────────────────────────────────────────────────

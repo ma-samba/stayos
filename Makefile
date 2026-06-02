@@ -15,6 +15,8 @@ endif
         shell-front migrate migrate-run migrate-status migrate-tenant-all migrate-tenant-dry \
         fixtures db-reset validate-schema jwt cache \
         test test-unit test-functional test-security test-coverage test-setup \
+        test-db-create test-db-drop test-migrate test-fixtures test-tenant-migrate \
+        test-cache-clear db-reset-test test-integration test-watch \
         lint cs cs-fix stan worker worker-failed \
         npm-install npm-build tenant-provision logs-php logs-front ps down down-v
 
@@ -23,6 +25,13 @@ YELLOW = \033[0;33m
 CYAN   = \033[0;36m
 RED    = \033[0;31m
 RESET  = \033[0m
+
+# Variables d'env à forcer pour les commandes ciblant la BDD de test.
+# Le container PHP impose APP_ENV=dev et DATABASE_URL=stayos_db dans son
+# environnement système, qui écrase les .env.test si on ne les override pas
+# explicitement via `docker compose exec -e`.
+TEST_DB_URL = postgresql://stayos_user:stayos_password@db:5432/stayos_test?serverVersion=16&charset=utf8
+EXEC_TEST   = docker compose exec -e APP_ENV=test -e DATABASE_URL="$(TEST_DB_URL)" php
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -204,24 +213,43 @@ cache: ## 🗑 Vider le cache Symfony
 # TESTS
 # ════════════════════════════════════════════════════════════════════════════
 
-test-setup: ## 🔧 Créer et préparer la BDD de test
-	docker compose exec db psql -U stayos_user -d stayos_db -tc "SELECT 1 FROM pg_database WHERE datname='stayos_test'" | grep -q 1 || docker compose exec db psql -U stayos_user -d stayos_db -c "CREATE DATABASE stayos_test"
-	docker compose exec -e DATABASE_URL="postgresql://stayos_user:stayos_password@db:5432/stayos_test?serverVersion=16&charset=utf8" php php bin/console doctrine:migrations:migrate --env=test --no-interaction
-	@echo "$(GREEN)✅ BDD de test prête$(RESET)"
+test-db-create: ## 🔧 Crée la BDD de test si elle n'existe pas
+	@docker compose exec db psql -U stayos_user -d stayos_db -tc "SELECT 1 FROM pg_database WHERE datname='stayos_test'" | grep -q 1 || docker compose exec db psql -U stayos_user -d stayos_db -c "CREATE DATABASE stayos_test"
+
+test-db-drop: ## 🔧 Drop la BDD de test (force, idempotent)
+	docker compose exec db psql -U stayos_user -d stayos_db -c "DROP DATABASE IF EXISTS stayos_test WITH (FORCE)"
+
+test-migrate: ## 🔧 Applique les migrations public sur la BDD de test
+	$(EXEC_TEST) php bin/console doctrine:migrations:migrate --env=test --no-interaction --allow-no-migration
+
+test-fixtures: ## 🔧 Charge les fixtures sur la BDD de test
+	$(EXEC_TEST) php bin/console doctrine:fixtures:load --env=test --no-interaction --purger=tenant_aware
+
+test-tenant-migrate: ## 🔧 Applique les migrations tenant sur les schemas hotel_{uuid} de la BDD de test
+	$(EXEC_TEST) php bin/console stayos:tenant:migrate --env=test
+
+test-cache-clear: ## 🔧 Vide le cache compilé Symfony pour l'env de test
+	$(EXEC_TEST) php bin/console cache:clear --env=test
+
+test-setup: test-db-create test-migrate test-fixtures test-tenant-migrate test-cache-clear ## 🔧 Prépare la BDD de test (idempotent)
+	@echo "$(GREEN)✅ BDD de test prête + cache test vidé$(RESET)"
+
+db-reset-test: test-db-drop test-db-create test-migrate test-fixtures test-tenant-migrate test-cache-clear ## ⚠️  Reset complet BDD de test (drop + create + migrate + fixtures + tenant migrations)
+	@echo "$(GREEN)✅ BDD de test recréée from scratch$(RESET)"
 
 test-integration: ## 🧪 Tests d'intégration (nécessitent make fixtures)
 	docker compose exec php php bin/phpunit --group integration
 
-test: ## 🧪 Lancer tous les tests
+test: test-setup ## 🧪 Lancer tous les tests (BDD test garantie à jour)
 	docker compose exec php php bin/phpunit
 
-test-unit: ## 🧪 Tests unitaires uniquement
+test-unit: ## 🧪 Tests unitaires uniquement (pas de BDD)
 	docker compose exec php php bin/phpunit tests/Unit
 
-test-functional: ## 🧪 Tests fonctionnels uniquement
+test-functional: test-setup ## 🧪 Tests fonctionnels uniquement
 	docker compose exec php php bin/phpunit tests/Functional
 
-test-security: ## 🔒 Tests sécurité et isolation multi-tenant (CRITIQUE)
+test-security: test-setup ## 🔒 Tests sécurité et isolation multi-tenant (CRITIQUE)
 	@echo "$(RED)▶ Tests isolation multi-tenant...$(RESET)"
 	docker compose exec php php bin/phpunit tests/Functional/Security
 	@echo "$(GREEN)✅ Tests sécurité OK$(RESET)"

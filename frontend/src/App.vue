@@ -1,14 +1,31 @@
 <script setup lang="ts">
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
-import { computed, ref } from 'vue'
+import { useNotificationsStore } from '@/stores/notifications.store'
+import { computed, ref, watch, onMounted } from 'vue'
+import NotificationCenter from '@/components/NotificationCenter.vue'
+import ToastContainer from '@/components/ToastContainer.vue'
 
 const route  = useRoute()
 const router = useRouter()
 const auth   = useAuthStore()
+const notifications = useNotificationsStore()
 
 const isAuthPage = computed(() => route.path === '/login')
 const isSidebarCollapsed = ref(false)
+
+// ── Cycle de vie Mercure (notifications + toasts) ────────────
+onMounted(() => {
+  if (auth.isAuthenticated) notifications.connect()
+})
+
+watch(
+  () => auth.isAuthenticated,
+  (isAuth, was) => {
+    if (isAuth && !was) notifications.connect()
+    if (!isAuth && was) notifications.disconnect()
+  },
+)
 
 const allNavItems = [
   { path: '/dashboard',     icon: 'ti-layout-dashboard', label: 'Tableau de bord', module: 'dashboard' },
@@ -73,6 +90,9 @@ function logout(): void {
 
       <!-- Footer sidebar -->
       <div class="sidebar-footer">
+        <div class="sidebar-bell-row">
+          <NotificationCenter />
+        </div>
         <button class="nav-item" @click="logout()">
           <i class="ti ti-logout" aria-hidden="true"></i>
           <span>Déconnexion</span>
@@ -93,6 +113,7 @@ function logout(): void {
       <RouterView />
     </main>
 
+    <ToastContainer />
   </div>
 </template>
 
@@ -194,6 +215,14 @@ function logout(): void {
   padding-top: 1rem;
 }
 
+/* ── Bell row dans la sidebar ── */
+.sidebar-bell-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 4px 8px;
+}
+
 /* ── Toggle button ── */
 .sidebar-toggle {
   display: flex;
@@ -244,6 +273,11 @@ function logout(): void {
 
 .sidebar-collapsed .sidebar-footer .nav-item {
   justify-content: center;
+}
+
+.sidebar-collapsed .sidebar-bell-row {
+  justify-content: center;
+  padding: 0 0 8px;
 }
 
 .sidebar-collapsed .sidebar-toggle {

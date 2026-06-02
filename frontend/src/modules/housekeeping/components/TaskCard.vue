@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { CleaningTask, CleaningStatus } from '@/types/entities'
+import type { CleaningTask, CleaningStatus, StaffUser } from '@/types/entities'
 import { housekeepingService } from '@/services/housekeeping.service'
 
 const props = defineProps<{
@@ -15,6 +15,12 @@ const emit = defineEmits<{
 const busy = ref(false)
 const errorMsg = ref<string | null>(null)
 const confirmingSkip = ref(false)
+
+// ── Assignation ──
+const assigning = ref(false)
+const housekeepers = ref<StaffUser[]>([])
+const loadingHousekeepers = ref(false)
+const selectedHousekeeperId = ref<string>('')
 
 // ── Labels ──
 
@@ -63,6 +69,52 @@ async function changeStatus(newStatus: CleaningStatus): Promise<void> {
     busy.value = false
   }
 }
+
+async function openAssign(): Promise<void> {
+  errorMsg.value = null
+  assigning.value = true
+  selectedHousekeeperId.value = props.task.assignedToId ?? ''
+  // Lazy-load au moment de l'ouverture pour ne pas spammer l'API quand
+  // beaucoup de cartes sont rendues simultanément.
+  loadingHousekeepers.value = true
+  try {
+    housekeepers.value = await housekeepingService.listHousekeepers()
+  } catch (err: unknown) {
+    const resp = (err as { response?: { status?: number } }).response
+    errorMsg.value = resp?.status === 403
+      ? 'Accès refusé.'
+      : 'Impossible de charger la liste du personnel.'
+  } finally {
+    loadingHousekeepers.value = false
+  }
+}
+
+function cancelAssign(): void {
+  assigning.value = false
+  selectedHousekeeperId.value = ''
+}
+
+async function confirmAssign(): Promise<void> {
+  busy.value = true
+  errorMsg.value = null
+  try {
+    const targetId = selectedHousekeeperId.value === '' ? null : selectedHousekeeperId.value
+    await housekeepingService.assign(props.task.id, targetId)
+    assigning.value = false
+    emit('refresh')
+  } catch (err: unknown) {
+    const resp = (err as { response?: { data?: { error?: string }; status?: number } }).response
+    if (resp?.status === 403) {
+      errorMsg.value = 'Vous n\'avez pas les droits pour assigner.'
+    } else if (resp?.status === 422 || resp?.status === 404) {
+      errorMsg.value = resp.data?.error ?? 'Action impossible.'
+    } else {
+      errorMsg.value = 'Erreur inattendue.'
+    }
+  } finally {
+    busy.value = false
+  }
+}
 </script>
 
 <template>
@@ -89,6 +141,16 @@ async function changeStatus(newStatus: CleaningStatus): Promise<void> {
     <div class="task-meta">
       <span v-if="task.assignedToName" class="task-assigned">
         <i class="ti ti-user" aria-hidden="true"></i> {{ task.assignedToName }}
+        <button
+          v-if="isSupervisor && !assigning"
+          class="task-reassign-link"
+          type="button"
+          :disabled="busy"
+          aria-label="Réassigner cette tâche"
+          @click="openAssign"
+        >
+          <i class="ti ti-edit" aria-hidden="true"></i> Réassigner
+        </button>
       </span>
       <span v-else class="task-unassigned">Non assigné</span>
       <span class="task-time">
@@ -106,6 +168,16 @@ async function changeStatus(newStatus: CleaningStatus): Promise<void> {
 
     <!-- Action buttons -->
     <div class="task-actions">
+      <!-- Assigner (pending non assigné, supervisor uniquement) -->
+      <button
+        v-if="isSupervisor && task.status === 'pending' && !task.assignedToId && !assigning"
+        class="btn btn-secondary btn-action"
+        :disabled="busy"
+        @click="openAssign"
+      >
+        <i class="ti ti-user-plus" aria-hidden="true"></i> Assigner
+      </button>
+
       <!-- pending → Commencer -->
       <button
         v-if="task.status === 'pending'"
@@ -177,6 +249,45 @@ async function changeStatus(newStatus: CleaningStatus): Promise<void> {
           class="btn btn-ghost btn-sm"
           :disabled="busy"
           @click="confirmingSkip = false"
+        >
+          Annuler
+        </button>
+      </div>
+    </div>
+
+    <!-- Inline assignment popover -->
+    <div v-if="assigning" class="assign-popover">
+      <div class="assign-popover-label">Assigner à</div>
+      <select
+        v-model="selectedHousekeeperId"
+        class="select assign-select"
+        :disabled="busy || loadingHousekeepers"
+      >
+        <option value="">— Non assigné —</option>
+        <option
+          v-for="hk in housekeepers"
+          :key="hk.id"
+          :value="hk.id"
+        >
+          {{ hk.fullName }}
+        </option>
+      </select>
+      <div v-if="loadingHousekeepers" class="assign-loading">Chargement…</div>
+      <div v-else-if="housekeepers.length === 0" class="assign-empty">
+        Aucun membre du personnel ménage disponible.
+      </div>
+      <div class="assign-actions">
+        <button
+          class="btn btn-primary btn-sm"
+          :disabled="busy || loadingHousekeepers"
+          @click="confirmAssign"
+        >
+          Confirmer
+        </button>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="busy"
+          @click="cancelAssign"
         >
           Annuler
         </button>
@@ -337,5 +448,63 @@ async function changeStatus(newStatus: CleaningStatus): Promise<void> {
 .skip-confirm-actions {
   display: flex;
   gap: 6px;
+}
+
+/* Reassign link (next to assignee name) */
+.task-reassign-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 2px 6px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: 11px;
+  color: var(--pms-ink-3);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.task-reassign-link:hover:not(:disabled) {
+  background: var(--pms-sand-2);
+  color: var(--pms-ink);
+}
+.task-reassign-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Assignment popover */
+.assign-popover {
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--pms-sand);
+  border-radius: var(--radius-sm);
+}
+.assign-popover-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--pms-ink-3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.assign-select {
+  width: 100%;
+  height: 36px;
+}
+.assign-loading,
+.assign-empty {
+  font-size: 12px;
+  color: var(--pms-ink-3);
+  margin-top: 6px;
+  font-style: italic;
+}
+.assign-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  justify-content: flex-end;
 }
 </style>

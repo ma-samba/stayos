@@ -10,9 +10,12 @@ use App\Hotel\Billing\Domain\Entity\Payment;
 use App\Hotel\Billing\Domain\Enum\InvoiceStatus;
 use App\Hotel\Billing\Domain\Enum\PaymentStatus;
 use App\Hotel\Billing\Domain\Service\InvoiceService;
+use App\Hotel\Guest\Domain\Entity\Guest;
+use App\Hotel\Reservation\Domain\Entity\Reservation;
 use App\Hotel\Shared\Domain\Service\AuditService;
 use App\Platform\Auth\Domain\Entity\StaffUser;
 use App\Shared\Exception\BusinessRuleException;
+use App\Shared\Mercure\MercurePublisher;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -24,17 +27,25 @@ class InvoiceServiceTest extends TestCase
 {
     private EntityManagerInterface&MockObject $em;
     private AuditService&MockObject $audit;
+    private MercurePublisher&MockObject $mercure;
     private InvoiceService $service;
     private StaffUser&MockObject $staff;
 
     protected function setUp(): void
     {
-        $this->em    = $this->createMock(EntityManagerInterface::class);
-        $this->audit = $this->createMock(AuditService::class);
-        $twig        = $this->createMock(Twig::class);
-        $logger      = new NullLogger();
+        $this->em      = $this->createMock(EntityManagerInterface::class);
+        $this->audit   = $this->createMock(AuditService::class);
+        $this->mercure = $this->createMock(MercurePublisher::class);
+        $twig          = $this->createMock(Twig::class);
+        $logger        = new NullLogger();
 
-        $this->service = new InvoiceService($this->em, $this->audit, $twig, $logger);
+        $this->service = new InvoiceService(
+            $this->em,
+            $this->audit,
+            $this->mercure,
+            $twig,
+            $logger,
+        );
         $this->staff   = $this->createMock(StaffUser::class);
     }
 
@@ -48,6 +59,12 @@ class InvoiceServiceTest extends TestCase
         $invoice->setTaxXof('0.00');
         $invoice->setTotalXof($totalXof);
         $invoice->setStatusEnum($status);
+
+        $guest = $this->createMock(Guest::class);
+        $guest->method('getFullName')->willReturn('Test Guest');
+        $reservation = $this->createMock(Reservation::class);
+        $reservation->method('getGuest')->willReturn($guest);
+        $invoice->setReservation($reservation);
 
         // Set UUID via reflection (normally Doctrine sets this)
         $ref = new \ReflectionProperty(Invoice::class, 'id');

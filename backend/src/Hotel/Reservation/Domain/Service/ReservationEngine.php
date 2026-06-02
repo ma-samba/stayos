@@ -263,6 +263,13 @@ class ReservationEngine
 
         $this->entityManager->flush();
 
+        $this->mercurePublisher->publish('reservation.cancelled', [
+            'id'                 => (string) $reservation->getId(),
+            'confirmationNumber' => $reservation->getConfirmationNumber(),
+            'room'               => $reservation->getRoom()->getNumber(),
+            'reason'             => $reason,
+        ]);
+
         return $reservation;
     }
 

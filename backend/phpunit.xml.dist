@@ -11,6 +11,7 @@
         </testsuite>
         <testsuite name="Functional">
             <directory>tests/Functional</directory>
+            <exclude>tests/Functional/Security</exclude>
         </testsuite>
         <testsuite name="Security">
             <directory>tests/Functional/Security</directory>

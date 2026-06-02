@@ -5,9 +5,9 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **Sprint 11 — Notifications temps réel**
-- Dernière mise à jour : 25 mai 2026
-- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+- Sprint courant : **Sprint 12 — Abonnements & plans**
+- Dernière mise à jour : 2 juin 2026
+- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 
 ---
 
@@ -187,7 +187,7 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 - [x] Migration `AddGuestDocumentUrl` — champ `document_url` sur `guests`
 - [x] `formatCurrency()` helper centralisé (frontend)
 - [x] `GuestProfileView` — mode lecture + mode édition avec formulaire complet
-- [x] Makefile — chargement `.env`, cibles psql robustes, commandes tenant
+- [x] Makefile;jhdkjgdh — chargement `.env`, cibles psql robustes, commandes tenant
 
 **Livrable** : workflow réception complet (arrivée → séjour → départ)
 
@@ -340,25 +340,44 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### ⬜ Sprint 11 — Notifications temps réel
+### ✅ Sprint 11 — Notifications temps réel
 **Objectif** : tous les événements Mercure fonctionnent, centre de notifications frontend.
 
 **Backend**
-- [ ] `MercurePublisher` — service centralisé
-- [ ] Topics : `room.status.changed`, `reservation.created`, `task.assigned`, `payment.received`
-- [ ] Alertes automatiques : arrivées du jour, départs oubliés, tâches non assignées
+- [x] `MercurePublisher` (`Shared/Mercure/`) consolidé — publications namespacées `/hotel/{tenantId}/{event}`, tolérance aux pannes du hub via `catch` logger (WARNING désormais, plus muet).
+- [x] Publications complétées : `reservation.cancelled` (`ReservationEngine::cancel`), `payment.received` déjà présent (`PaydunyaWebhookHandler` + `InvoiceService::recordPayment`) — pas de duplication.
+- [x] `OperationalAlertService` (`Hotel/Notification/Domain/Service/`) — 3 alertes opérationnelles publiées via Mercure : `alert.arrivals_today`, `alert.late_checkout`, `alert.unassigned_tasks`. No-op si `count == 0` (pas de notification vide).
+- [x] `PublishDailyAlertsHandler` (`Hotel/Notification/Application/MessageHandler/`) — itération multi-tenant hors HTTP : pour chaque tenant actif, `SET search_path` + `TenantContext::set`, restauration en `finally`, isolation des erreurs par tenant (un tenant en échec n'arrête pas les autres).
+- [x] `PublishDailyAlertsCommand` (`stayos:alerts:daily`) — déclenchement manuel en attendant le scheduler Messenger du Sprint 12.
+- [x] Endpoint `/api/staff` (`StaffController`) — listing read-only des membres du tenant, RBAC MANAGER+RECEPTIONIST, isolation tenant via `search_path`. Utilisé par le sélecteur d'assignation housekeeping. (NB : manque du Sprint 8 révélé pendant le Sprint 11, livré ici.)
+- [x] `StaffUserRepository::findByRole` (accepte `ROLE_X` et `X`) + `StaffUser::getFullName`/`getRolesForApi` sérialisés (groupe `staff:read`).
 
 **Frontend**
-- [ ] `NotificationCenter.vue` — cloche avec badge non lues
-- [ ] `NotificationItem.vue` — format par type
-- [ ] Toasts automatiques sur événements temps réel
-- [ ] Plan d'étage mis à jour live sans rechargement
+- [x] `notification-mapper.ts` — `fingerprintEvent` : routage par forme de payload pour une connexion Mercure multiplexée (Mercure n'expose pas le topic par message). 11 types d'événements mappés vers `Notification` typée (titre FR, sévérité, metadata pour navigation).
+- [x] `mercure.service.ts` — méthode `subscribeMany(topics[], handler)` qui multiplexe plusieurs topics sur UNE EventSource. Résout la saturation HTTP/1.1 (limite 6 connexions/domaine vs 11+ topics naïvement abonnés). `subscribe()` délègue à `subscribeMany`.
+- [x] `notifications.store.ts` — Pinia setup :
+  - 3 EventSources au total (1 multiplexée pour 9 topics + 2 dédiées `checkin`/`checkout` — payloads identiques côté backend, indistinguables par fingerprint).
+  - Filtrage à deux niveaux : par rôle (`NOTIFICATION_AUDIENCE` — matrice qui rôle voit quel type d'event) puis par utilisateur (`targetUserId` pour `task.assigned`, manager bypass conservé).
+  - Anti-spam toasts : groupage des rafales du même type < 2 s.
+  - Max 50 notifications, volatile par session (pas de `localStorage` — RGPD light).
+- [x] `NotificationCenter.vue` — cloche dans la sidebar (visible même en mode réduit), badge unread, popover positionné pour ne pas sortir du viewport en mode collapsé.
+- [x] `ToastContainer.vue` — toasts maison (pas de lib externe), durées différenciées par sévérité, `alert` persistant avec bouton fermer, clic → navigation vers la ressource.
+- [x] `App.vue` — `connect()` au mount + `watch isAuthenticated`, `disconnect()` au logout (via `auth.store` + watch — redondance inoffensive notée au backlog).
+- [x] Stores `rooms` / `reservations` / `housekeeping` / `dashboard` — méthodes `subscribeLive`/`unsubscribeLive` avec refcount + idempotence, patch local de l'état sans refetch (sauf cas où le payload est trop mince → refetch débouncé à 2 s). Les vues appellent `subscribeLive` en `onMounted`, `unsubscribeLive` en `onUnmounted`.
+- [x] Helper `resolveTenantSlug()` — extraction du slug depuis le hostname (`savana.localhost` → `"savana"`), fallback sur `VITE_DEFAULT_TENANT_SLUG`. Permet le test multi-tenant en dev local.
+- [x] `TaskCard.vue` — UI d'assignation des tâches ménage (bouton « Assigner » sur tâches non assignées, « Réassigner » sur tâches assignées, visible UNIQUEMENT pour MANAGER/RECEPTIONIST).
 
 **Tests**
-- [ ] `MercureTest` — événement publié au bon topic
-- [ ] `MercureTest` — topic d'un autre tenant inaccessible
+- [x] `OperationalAlertServiceTest` — 6 tests : comportements des 3 alertes (arrivées comptées, départs détectés, tâches non assignées, no-op si vide, exclusion des tâches assignées).
+- [x] `StaffControllerTest` — 5 tests : RBAC manager/réceptionniste/housekeeper, listing avec/sans filtre rôle, isolation tenant (Villa Collines ne voit pas les staffs Savana).
+- [x] Suite complète verte : 175 tests, 484 assertions, 0 failure, 1 skipped (Lexik rate limiter, voir backlog).
 
-**Livrable** : réception notifiée en temps réel de toute activité
+**Ajouts notables (Sprint 11)**
+- [x] Découverte et fix de plusieurs régressions d'infra de test pré-existantes (`InvoiceServiceTest` depuis Sprint 7, fixtures test jamais chargées sur `stayos_test`) — `make test` désormais reproductible from scratch.
+- [x] Découverte et fix du bug Mercure JWT < 256 bits (silently failing par catch muet) — leçon ajoutée au backlog : auditer les `catch \Throwable` silencieux du projet.
+- [x] CORS dev : autorisation des sous-domaines `*.localhost:5173` via regex dans `nelmio_cors.yaml`, prod inchangée.
+
+**Livrable** : système de notifications temps réel complet, filtrage à deux niveaux (rôle + utilisateur), isolation tenant prouvée. Alertes opérationnelles quotidiennes publiables via commande console (scheduler Messenger en Sprint 12).
 
 ---
 
@@ -462,31 +481,35 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   réduction des coûts de ménage.
 
 ### Module Staff & assignation des tâches
-- **Module de gestion du personnel** : lister, créer, désactiver les
-  comptes employés (StaffUser), gérer leurs rôles (MANAGER,
-  RECEPTIONIST, ACCOUNTANT, HOUSEKEEPER). N'existe pas encore — les
-  comptes sont créés via fixtures uniquement.
-- **Endpoint de listing du staff** : GET /api/staff (filtrable par
-  rôle, ex: ?role=HOUSEKEEPER) — prérequis pour toute UI d'assignation.
-  À sécuriser par rôle (manager/réceptionniste).
-- **UI d'assignation des tâches de ménage** : le backend est prêt
-  (PATCH /api/housekeeping/tasks/{id}/assign, réservé MANAGER/
-  RECEPTIONIST, + notif Mercure task.assigned). Manque le bouton
-  "Assigner" dans la TaskCard du kanban (la prop isSupervisor est déjà
-  câblée) et le menu de sélection du staff (nécessite l'endpoint
-  ci-dessus).
+- ~~**Endpoint de listing du staff**~~ : livré au Sprint 11 (GET
+  `/api/staff?role=ROLE_X`, RBAC MANAGER+RECEPTIONIST). Lecture seule
+  pour l'instant.
+- ~~**UI d'assignation des tâches de ménage**~~ : livré au Sprint 11
+  (bouton « Assigner »/« Réassigner » dans `TaskCard.vue`, popover
+  avec `<select>` lazy-loaded depuis `/api/staff`).
+- **Module de gestion du personnel (vraie RH)** : ajout / édition /
+  désactivation de membres, gestion des rôles, invitations email, gestion
+  d'un éventuel multi-rôle. L'endpoint `/api/staff` actuel est read-only
+  minimal — il faudra le compléter (POST/PUT/DELETE) et concevoir l'UI
+  dédiée. À planifier selon priorité produit (Sprint 12 ou 13 selon
+  besoins).
 - **Stratégie d'assignation à définir (réflexion produit)** : assigner
-  manuellement tâche par tâche ? par zone/étage attribué à chaque
-  agent ? automatiquement à la génération des tâches ? À trancher avant
-  d'implémenter l'UI.
+  manuellement tâche par tâche (livré) ? par zone/étage attribué à
+  chaque agent ? automatiquement à la génération des tâches ? La V1
+  manuelle est en place — affiner si l'usage révèle le besoin.
 
 ### Tarification — affinements reportes
 - **Promo conservee a la modification de reservation** : aujourd'hui un
   `update()` de reservation sans promoCode/ratePlanId recalcule SANS la
   promo (la remise saute si on change juste les dates). Comportement
-  explicite choisi pour le Sprint 9. A affiner : memoriser la promo/le
-  plan appliques sur la reservation et les reutiliser au recalcul, ou
-  demander confirmation a l'utilisateur.
+  explicite choisi pour le Sprint 9. Le Sprint 10 a partiellement
+  resolu cas (rehydratation depuis `priceBreakdown` dans le formulaire),
+  mais le cas "modification des dates sans repasser par le formulaire"
+  reste expose. Options etudiees : (A) garder tel quel — pedagogique ;
+  (B) memoriser la promo/le plan sur la reservation et les reappliquer
+  au recalcul ; (C) avertir l'utilisateur avant recalcul.
+  Recommandation : (B), avec une migration tenant legere pour
+  persister `ratePlanId` / `promoCode` sur `reservations`.
 - **Ligne de facture detaillee (client)** : `InvoiceDraftService`
   genere une ligne unique au total reel. Le detail tarifaire est
   visible en interne sur la page facture (option B livree au Sprint 10,
@@ -524,11 +547,6 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   agrégée (pas de série journalière). Pour un graphe RevPAR/jour il
   faudrait exposer le nombre de chambres disponibles par jour dans
   la série (actuellement non transmis par l'API).
-- **Resynchroniser la documentation** : services.md décrit un
-  `DashboardService` (renommé `KpiService`) et une occupation
-  physique (remplacée par occupation vendue). fixtures.md décrit
-  des statuts de chambres en dur (corrigés). Mettre à jour ces deux
-  fichiers pour refléter le code livré.
 - **Cache Redis sur les KPIs** : prevu Sprint 14 — rappel. Les
   rapports sur de longues périodes (~365 jours) itèrent sur chaque
   jour en PHP ; un cache courte durée (5 min) réduirait la charge.
@@ -540,3 +558,99 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   avec un client CHECKED_IN, ou OCCUPIED sans reservation active.
   Definir la matrice de transitions autorisees. Impact : coherence
   renforcee entre statut physique et reservations.
+
+### Notifications temps réel — raffinements
+- **Anti-spam toasts, cas limite rafale 4+** : à partir de la 4e
+  notification d'une rafale identique en < 2 s, le compteur du toast
+  groupé se réinitialise au lieu de continuer à monter. Cas rare (ex :
+  5 tâches assignées simultanément en début de service), à raffiner
+  si l'usage le révèle. Voir `notifications.store.ts` →
+  `shouldGroupBurst` + `pushToast`.
+- **Double `disconnect()` au logout** : `notifications.disconnect()`
+  est appelé deux fois — depuis le `watch` sur `isAuthenticated` dans
+  `App.vue` ET depuis `auth.store.logout()`. Idempotent (refcount =>
+  no-op si déjà fermé), donc inoffensif, mais un seul chemin
+  suffirait. À nettoyer pour la lisibilité.
+- **Refetch reservations + filtre actif** : sur `reservation.created`,
+  `reservations.store` redéclenche un fetch avec le dernier filtre
+  appliqué (`lastFetchParams`). Si la vue affichait un filtre par
+  statut différent de `confirmed`, la nouvelle réservation peut ne
+  pas apparaître malgré l'event reçu — techniquement correct mais
+  peut frustrer l'utilisateur. Options : (A) toujours refetch sans
+  filtre puis filtrer côté client, (B) notifier la liste cachée
+  ("1 nouvelle réservation hors filtre — cliquer pour voir").
+- **Distinguer les events `reservation.checkin` / `reservation.checkout`
+  côté backend** : leurs payloads sont actuellement identiques, ce qui
+  empêche le routage par `fingerprintEvent` et oblige à 2 EventSources
+  dédiées (vs multiplex pour les 9 autres). Ajouter un champ `_event`
+  au payload publié par `MercurePublisher` permettrait de tout
+  multiplexer sur une seule EventSource — coût modeste, gain :
+  -2 connexions.
+
+### Infrastructure de test & qualité
+- **Bug Lexik rate limiter sur login après 5 tentatives** : comportement
+  anormal reproduit en environnement de développement, test
+  `testLoginRateLimitAfterFiveAttempts` skippé avec message explicite.
+  À investiguer : config Lexik, version du bundle, ou intégration
+  avec le rate limiter Symfony. Bloque la couverture du flux
+  bruteforce login en CI.
+- **Scripts npm racine cassés (frontend/)** : `npm run build` et
+  `npm run lint` échouent par absence de `tsconfig.json` et
+  `eslint.config.js` à la racine `frontend/`. Le type-check ciblé
+  (`tsc --strict` sur les fichiers modifiés) passe et `vite build`
+  fonctionne, donc le code est sain — mais la CI/déploiement
+  nécessitera ces scripts opérationnels. À remettre en état avant
+  Sprint 14 (production).
+- **Suite complète à chaque clôture de sprint** : les régressions
+  `InvoiceServiceTest` (Sprint 7) et le 404 fonctionnel (fixtures
+  test jamais chargées) ont été révélés tard parce que `make test`
+  complet n'avait pas tourné régulièrement. Établir un réflexe de
+  fin de sprint : suite complète verte AVANT le commit de clôture.
+  Idéalement, automatiser via un pre-commit hook ou une étape CI au
+  Sprint 14.
+- **Auditer les `catch (\Throwable)` silencieux** : le bug Mercure
+  JWT < 256 bits a été masqué pendant un sprint entier par un catch
+  muet dans `MercurePublisher`. Le fix au Sprint 11 a transformé ce
+  catch en `WARNING` loggé, mais d'autres opérations critiques
+  (paiement, email, upload Uploadcare, génération PDF, IPN Paydunya,
+  etc.) ont peut-être des catch équivalents qui avalent les
+  exceptions sans tracer. Une demi-heure de revue qui peut éviter le
+  prochain bug fantôme — à prévoir avant le Sprint 14.
+
+### Mercure — durcissement production
+- **Abonnements anonymes en dev, à durcir en prod** : la config
+  Mercure dev (`backend/compose.yaml`) active la directive Caddy
+  `anonymous` et `cors_origins http://localhost:5173 ...` pour que
+  le front s'abonne sans JWT. L'isolation cross-tenant repose alors
+  uniquement sur l'imprévisibilité de l'UUID tenant dans le topic
+  (`/hotel/{uuid}/...`). Acceptable en dev, **insuffisant en prod** :
+  un UUID fuité (logs, screenshot, devtools) permet à un tiers de
+  s'abonner aux events d'un hôtel.
+- **Plan prod** :
+  - Générer un JWT subscriber par session staff (claim `mercure.subscribe`
+    listant uniquement les topics du tenant courant) — service
+    Symfony à ajouter, exposé via `GET /api/auth/mercure-token`.
+  - Frontend : passer ce JWT à `EventSource` via `withCredentials: true`
+    et un cookie ou un query param signé (selon politique CORS).
+  - `cors_origins` restreint au domaine de prod
+    (`https://*.stayos.sn`).
+  - TLS réel (Caddy auto-cert Let's Encrypt en HTTPS, ce qui est le
+    comportement par défaut dunglas/mercure si on enlève le
+    `SERVER_NAME: ':80'`).
+  - Retirer `publish_origins *` et restreindre au domaine Heroku/backend.
+- **À planifier au Sprint 14 (production-ready)** en même temps que le
+  durcissement sécurité général (headers HTTP, signatures webhooks).
+
+### Documentation à resynchroniser
+- **services.md vs code réel** : décrit un `DashboardService` alors
+  que le code livré est `KpiService` (`src/Hotel/Analytics/`), un
+  `ReportController` alors que c'est `DashboardController`, et
+  définit l'occupation comme physique (chambres occupées / totales)
+  alors que le code calcule l'occupation vendue (nuits vendues /
+  nuits disponibles) — choix assumé au Sprint 10 pour cohérence
+  ADR/RevPAR. Réécrire la section pour refléter le code livré.
+- **fixtures.md vs code réel** : décrit une structure de fixtures
+  (`RoomFixtures`, `RoomTypeFixtures`, `FloorFixtures`,
+  `SuperAdminFixtures` séparés) qui ne correspond pas au code (tout
+  regroupé dans `HotelDataFixtures`, `ReservationFixtures`, etc.).
+  Aligner sur la réalité du code.

@@ -2,6 +2,8 @@
 .env.local
 .env.local.php
 .env.*.local
+# .env racine — contient les secrets dev locaux (Paydunya, Uploadcare, …)
+/.env
 
 # ── Notes personnelles Claude ─────────────────────────────────────────────────
 CLAUDE.local.md

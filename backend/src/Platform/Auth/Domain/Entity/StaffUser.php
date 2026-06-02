@@ -6,6 +6,8 @@ use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
+use Symfony\Component\Serializer\Attribute\Groups;
+use Symfony\Component\Serializer\Attribute\SerializedName;
 use Symfony\Component\Uid\Uuid;
 
 /**
@@ -21,18 +23,22 @@ class StaffUser implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
+    #[Groups(['staff:read'])]
     private Uuid $id;
 
     #[ORM\Column(length: 180, unique: true)]
+    #[Groups(['staff:read'])]
     private string $email;
 
     #[ORM\Column]
     private string $password;
 
     #[ORM\Column(length: 100)]
+    #[Groups(['staff:read'])]
     private string $firstName;
 
     #[ORM\Column(length: 100)]
+    #[Groups(['staff:read'])]
     private string $lastName;
 
     #[ORM\Column(length: 20, options: ['default' => 'RECEPTIONIST'])]
@@ -202,9 +208,23 @@ class StaffUser implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->updatedAt;
     }
 
+    #[Groups(['staff:read'])]
+    #[SerializedName('fullName')]
     public function getFullName(): string
     {
         return $this->firstName . ' ' . $this->lastName;
+    }
+
+    /**
+     * Liste de rôles exposée dans la sérialisation API (ex: ['ROLE_HOUSEKEEPER', 'ROLE_USER']).
+     * Réutilise la logique de {@see getRoles()} via SerializedName pour éviter
+     * d'avoir deux sources de vérité.
+     */
+    #[Groups(['staff:read'])]
+    #[SerializedName('roles')]
+    public function getRolesForApi(): array
+    {
+        return $this->getRoles();
     }
 
     public function eraseCredentials(): void {}

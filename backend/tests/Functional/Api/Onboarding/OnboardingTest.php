@@ -81,11 +81,15 @@ class OnboardingTest extends ApiTestCase
         $this->apiRequest('POST', '/api/onboarding/register', 'localhost', $payload);
         self::assertResponseStatusCodeSame(201);
 
-        // Deuxième avec le même slug — conflit
+        // Deuxième avec le même slug — doublon.
+        // OnboardingService::register() lève AlreadyExistsException
+        // (cf. src/Platform/Auth/Domain/Service/OnboardingService.php:36),
+        // mappée par ApiExceptionListener en ALREADY_EXISTS / 409
+        // (cf. .claude/docs/errors.md : doublon = ALREADY_EXISTS).
         $payload['email'] = 'admin2@test-hotel-dup.sn';
         $this->apiRequest('POST', '/api/onboarding/register', 'localhost', $payload);
 
-        $this->assertApiError('CONFLICT', 409);
+        $this->assertApiError('ALREADY_EXISTS', 409);
     }
 
     public function testRegisterWithInvalidEmail(): void

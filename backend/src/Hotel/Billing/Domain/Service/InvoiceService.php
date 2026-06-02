@@ -14,6 +14,7 @@ use App\Hotel\Property\Domain\Entity\HotelProfile;
 use App\Shared\Exception\BusinessRuleException;
 use App\Hotel\Shared\Domain\Service\AuditService;
 use App\Platform\Auth\Domain\Entity\StaffUser;
+use App\Shared\Mercure\MercurePublisher;
 use Doctrine\ORM\EntityManagerInterface;
 use Dompdf\Dompdf;
 use Dompdf\Options as DompdfOptions;
@@ -26,6 +27,7 @@ class InvoiceService
     public function __construct(
         private readonly EntityManagerInterface  $entityManager,
         private readonly AuditService            $auditService,
+        private readonly MercurePublisher        $mercurePublisher,
         private readonly Twig                    $twig,
         #[Target('business')] private readonly LoggerInterface $logger,
     ) {}
@@ -116,6 +118,15 @@ class InvoiceService
             'amountXof'      => $dto->amountXof,
             'new_status'     => $invoice->getStatus(),
             'previous_status'=> $previousStatus,
+        ]);
+
+        $this->mercurePublisher->publish('payment.received', [
+            'invoiceId'     => (string) $invoice->getId(),
+            'invoiceNumber' => $invoice->getNumber(),
+            'amountXof'     => $dto->amountXof,
+            'method'        => $method->value,
+            'guestName'     => $invoice->getReservation()?->getGuest()?->getFullName(),
+            'paidAt'        => $payment->getPaidAt()?->format('c'),
         ]);
 
         return $payment;

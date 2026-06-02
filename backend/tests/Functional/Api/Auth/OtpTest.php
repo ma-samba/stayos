@@ -21,6 +21,16 @@ class OtpTest extends ApiTestCase
     {
         parent::setUp();
         $this->em = static::getContainer()->get(EntityManagerInterface::class);
+
+        // Purge les OTP existants pour cet email — sinon findValidToken
+        // (ORDER BY createdAt DESC) renvoie un OTP créé par un test précédent
+        // au lieu de celui que le test courant vient d'insérer.
+        $this->em->createQueryBuilder()
+            ->delete(OtpToken::class, 'o')
+            ->where('o.email = :email')
+            ->setParameter('email', self::EMAIL)
+            ->getQuery()
+            ->execute();
     }
 
     public function testSendOtpReturns200(): void

@@ -3,6 +3,8 @@
 namespace App\Shared\Mercure;
 
 use App\Shared\TenantContext;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Target;
 use Symfony\Component\Mercure\HubInterface;
 use Symfony\Component\Mercure\Update;
 
@@ -15,6 +17,7 @@ class MercurePublisher
     public function __construct(
         private readonly HubInterface  $hub,
         private readonly TenantContext $tenantContext,
+        #[Target('external')] private readonly LoggerInterface $logger,
     ) {}
 
     /**
@@ -45,9 +48,14 @@ class MercurePublisher
 
         try {
             $this->hub->publish($update);
-        } catch (\Throwable) {
-            // Hub Mercure indisponible (ex: dev sans serveur Mercure)
-            // On ne bloque pas le flux métier
+        } catch (\Throwable $e) {
+            // On ne bloque pas le flux métier, mais on TRACE — un secret JWT
+            // trop court ou un hub injoignable ne doit plus être silencieux.
+            $this->logger->warning('Mercure publish failed', [
+                'topic' => $namespacedTopic,
+                'error' => $e->getMessage(),
+                'class' => get_class($e),
+            ]);
         }
     }
 }

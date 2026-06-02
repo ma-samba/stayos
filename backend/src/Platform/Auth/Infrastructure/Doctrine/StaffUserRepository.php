@@ -24,4 +24,25 @@ class StaffUserRepository extends ServiceEntityRepository
             ->getQuery()
             ->getOneOrNullResult();
     }
+
+    /**
+     * Liste les staff par rôle. Accepte soit la forme courte ("HOUSEKEEPER")
+     * soit la forme préfixée Symfony ("ROLE_HOUSEKEEPER"), pour pouvoir être
+     * appelée depuis l'API où le client envoie naturellement "ROLE_*".
+     *
+     * @return StaffUser[]
+     */
+    public function findByRole(string $role): array
+    {
+        $normalized = str_starts_with($role, 'ROLE_') ? substr($role, 5) : $role;
+
+        return $this->createQueryBuilder('s')
+            ->andWhere('s.role = :role')
+            ->andWhere('s.active = true')
+            ->setParameter('role', $normalized)
+            ->orderBy('s.firstName', 'ASC')
+            ->addOrderBy('s.lastName', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
 }

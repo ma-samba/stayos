@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useDashboardStore } from '@/stores/dashboard.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { formatCurrency } from '@/utils/currency'
@@ -50,8 +50,13 @@ function exportCsv(): void {
 
 onMounted(() => {
   store.fetchToday()
+  store.subscribeLive()
   // Pré-remplir avec les 30 derniers jours
   setShortcut(30)
+})
+
+onUnmounted(() => {
+  store.unsubscribeLive()
 })
 </script>
 

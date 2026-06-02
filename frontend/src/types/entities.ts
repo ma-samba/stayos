@@ -187,6 +187,15 @@ export interface CleaningTask {
   assignedToId: string | null
 }
 
+export interface StaffUser {
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+  fullName: string
+  roles: string[]
+}
+
 export interface TaskAssignedEvent {
   taskId: string
   roomNumber: string

@@ -282,6 +282,30 @@ class ReservationEngineTest extends TestCase
         $this->assertStringContainsString('Client demande annulation', $result->getNotes());
     }
 
+    // ── Test 6b : Annulation publie sur Mercure ──
+
+    public function testCancelPublishesMercureEvent(): void
+    {
+        $room  = $this->makeRoom('205');
+        $guest = $this->makeGuest();
+
+        $reservation = $this->makeReservation('confirmed', $room, $guest);
+
+        $this->mercurePublisher
+            ->expects($this->once())
+            ->method('publish')
+            ->with(
+                'reservation.cancelled',
+                $this->callback(function (array $data): bool {
+                    return isset($data['id'], $data['confirmationNumber'], $data['room'], $data['reason'])
+                        && $data['room'] === '205'
+                        && $data['reason'] === 'Annulation test';
+                }),
+            );
+
+        $this->engine->cancel($reservation, 'Annulation test', $this->staff);
+    }
+
     // ── Test 7 : Check-out génère une facture draft ──
 
     public function testCheckOutTriggersInvoiceDraft(): void
