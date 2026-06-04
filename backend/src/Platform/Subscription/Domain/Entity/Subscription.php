@@ -5,6 +5,7 @@ namespace App\Platform\Subscription\Domain\Entity;
 use App\Platform\Tenant\Domain\Entity\Tenant;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
+use Symfony\Component\Serializer\Attribute\Groups;
 use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity]
@@ -15,6 +16,7 @@ class Subscription
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     #[ORM\GeneratedValue(strategy: 'CUSTOM')]
     #[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]
+    #[Groups(['subscription:read'])]
     private Uuid $id;
 
     #[ORM\ManyToOne(targetEntity: Tenant::class)]
@@ -23,27 +25,41 @@ class Subscription
 
     #[ORM\ManyToOne(targetEntity: Plan::class)]
     #[ORM\JoinColumn(nullable: false)]
+    #[Groups(['subscription:read'])]
     private Plan $plan;
 
     #[ORM\Column(length: 20, options: ['default' => 'trial'])]
+    #[Groups(['subscription:read'])]
     private string $status = 'trial';
 
     #[ORM\Column(length: 10, options: ['default' => 'monthly'])]
+    #[Groups(['subscription:read'])]
     private string $billingCycle = 'monthly';
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['subscription:read'])]
     private ?\DateTimeImmutable $trialEndsAt = null;
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['subscription:read'])]
     private ?\DateTimeImmutable $currentPeriodStart = null;
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['subscription:read'])]
     private ?\DateTimeImmutable $currentPeriodEnd = null;
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['subscription:read'])]
     private ?\DateTimeImmutable $cancelledAt = null;
 
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $lastNotificationSentAt = null;
+
+    #[ORM\Column(length: 40, nullable: true)]
+    private ?string $lastNotificationType = null;
+
     #[ORM\Column]
+    #[Groups(['subscription:read'])]
     private \DateTimeImmutable $createdAt;
 
     public function __construct()
@@ -155,6 +171,30 @@ class Subscription
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
+    }
+
+    public function getLastNotificationSentAt(): ?\DateTimeImmutable
+    {
+        return $this->lastNotificationSentAt;
+    }
+
+    public function setLastNotificationSentAt(?\DateTimeImmutable $dt): self
+    {
+        $this->lastNotificationSentAt = $dt;
+
+        return $this;
+    }
+
+    public function getLastNotificationType(): ?string
+    {
+        return $this->lastNotificationType;
+    }
+
+    public function setLastNotificationType(?string $type): self
+    {
+        $this->lastNotificationType = $type;
+
+        return $this;
     }
 
     public function isActive(): bool

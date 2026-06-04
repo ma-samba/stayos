@@ -12,6 +12,9 @@ const auth   = useAuthStore()
 const notifications = useNotificationsStore()
 
 const isAuthPage = computed(() => route.path === '/login')
+const isFullScreenPage = computed(
+  () => route.path === '/login' || route.meta.hideSidebar === true,
+)
 const isSidebarCollapsed = ref(false)
 
 // ── Cycle de vie Mercure (notifications + toasts) ────────────
@@ -35,6 +38,7 @@ const allNavItems = [
   { path: '/invoices',      icon: 'ti-file-invoice',     label: 'Facturation',   module: 'billing' },
   { path: '/rates',         icon: 'ti-percentage',       label: 'Tarifs',        module: 'rates' },
   { path: '/housekeeping',  icon: 'ti-spray',            label: 'Ménage',        module: 'housekeeping' },
+  { path: '/subscription',  icon: 'ti-crown',            label: 'Abonnement',    module: 'subscription' },
 ]
 
 const navItems = computed(() =>
@@ -52,8 +56,11 @@ function logout(): void {
 </script>
 
 <template>
-  <!-- Sans sidebar sur la page login -->
-  <RouterView v-if="isAuthPage" />
+  <!-- Sans sidebar : login + pages plein écran (ex: compte suspendu) -->
+  <template v-if="isFullScreenPage">
+    <RouterView />
+    <ToastContainer v-if="!isAuthPage" />
+  </template>
 
   <!-- Layout avec sidebar -->
   <div v-else style="display:flex; min-height:100vh;">

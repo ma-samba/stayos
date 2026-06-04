@@ -1,0 +1,26 @@
+{% extends 'email/subscription/_base.html.twig' %}
+
+{% block content %}
+    <p>Bonjour {{ recipientName }},</p>
+
+    <h1>Votre essai expire dans 7 jours</h1>
+
+    <p>
+        Votre période d'essai gratuit pour <strong>{{ hotelName }}</strong> se termine
+        le <strong>{{ trialEndsAt|date('d/m/Y') }}</strong>.
+    </p>
+
+    <p>
+        Pour continuer à utiliser StayOS sans interruption, choisissez dès maintenant
+        l'abonnement adapté à votre établissement.
+    </p>
+
+    <p>
+        <a class="cta gold" href="{{ pricingUrl }}">Choisir un plan</a>
+    </p>
+
+    <p style="font-size:13px;color:#6B6459;">
+        Sans choix d'abonnement avant l'expiration, votre accès sera automatiquement
+        suspendu. Vos données restent conservées pendant 30 jours.
+    </p>
+{% endblock %}

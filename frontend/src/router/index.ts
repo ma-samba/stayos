@@ -82,6 +82,42 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/modules/guests/views/GuestProfileView.vue'),
     meta: { requiresAuth: true, title: 'Profil client', module: 'guests' },
   },
+  {
+    path: '/subscription',
+    name: 'subscription',
+    component: () => import('@/modules/subscription/views/SubscriptionView.vue'),
+    meta: { requiresAuth: true, title: 'Abonnement', module: 'subscription' },
+  },
+  {
+    path: '/subscription/pricing',
+    name: 'pricing',
+    component: () => import('@/modules/subscription/views/PricingView.vue'),
+    meta: { requiresAuth: true, title: 'Choisir un plan', module: 'subscription' },
+  },
+  {
+    path: '/subscription/invoices',
+    name: 'subscription-invoices',
+    component: () => import('@/modules/subscription/views/BillingHistoryView.vue'),
+    meta: { requiresAuth: true, title: 'Factures SaaS', module: 'subscription' },
+  },
+  {
+    path: '/subscription/payment-return',
+    name: 'subscription-payment-return',
+    component: () => import('@/modules/subscription/views/PaymentReturnView.vue'),
+    meta: { requiresAuth: true, title: 'Paiement', module: 'subscription' },
+  },
+  {
+    path: '/subscription/payment-cancel',
+    name: 'subscription-payment-cancel',
+    component: () => import('@/modules/subscription/views/PaymentCancelView.vue'),
+    meta: { requiresAuth: true, title: 'Paiement annulé', module: 'subscription' },
+  },
+  {
+    path: '/account-suspended',
+    name: 'account-suspended',
+    component: () => import('@/modules/subscription/views/AccountSuspendedView.vue'),
+    meta: { requiresAuth: true, title: 'Compte suspendu', hideSidebar: true },
+  },
 ]
 
 const router = createRouter({

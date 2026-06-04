@@ -9,6 +9,11 @@ use App\Hotel\Billing\Domain\Enum\InvoiceStatus;
 use App\Hotel\Billing\Domain\Enum\PaymentMethod;
 use App\Hotel\Billing\Domain\Enum\PaymentStatus;
 use App\Hotel\Billing\Domain\Gateway\PaymentGatewayRegistry;
+use App\Platform\Subscription\Domain\Entity\SaasInvoice;
+use App\Platform\Subscription\Domain\Enum\SaasInvoiceStatus;
+use App\Platform\Subscription\Domain\Service\AbonnementService;
+use App\Platform\Subscription\Domain\Service\SaasInvoiceService;
+use App\Platform\Subscription\Infrastructure\Doctrine\SaasInvoiceRepository;
 use App\Platform\Tenant\Infrastructure\Doctrine\TenantRepository;
 use App\Shared\Email\EmailService;
 use App\Shared\Mercure\MercurePublisher;
@@ -37,6 +42,9 @@ class PaydunyaWebhookHandler
         private readonly EmailService             $emailService,
         private readonly MercurePublisher         $mercurePublisher,
         private readonly TenantContext            $tenantContext,
+        private readonly SaasInvoiceRepository   $saasInvoiceRepository,
+        private readonly SaasInvoiceService      $saasInvoiceService,
+        private readonly AbonnementService       $abonnementService,
         #[Target('business')] private readonly LoggerInterface $logger,
     ) {}
 
@@ -46,11 +54,19 @@ class PaydunyaWebhookHandler
      * @param array  $payload        Corps brut du webhook (json decode)
      * @param string $providedSecret Secret fourni dans le query param
      * @param string $tenantSlug     Slug du tenant fourni dans le query param
+     * @param bool   $isSaas         true si l'IPN concerne une SaasInvoice
+     *                               (abonnement plateforme), false si paiement
+     *                               client hôtel (cas historique Sprint 7).
      */
-    public function handle(array $payload, string $providedSecret, string $tenantSlug): void
-    {
+    public function handle(
+        array  $payload,
+        string $providedSecret,
+        string $tenantSlug,
+        bool   $isSaas = false,
+    ): void {
         $this->logger->info('IPN received', [
-            'tenant_slug' => $tenantSlug,
+            'tenant_slug'  => $tenantSlug,
+            'is_saas'      => $isSaas,
             'payload_keys' => array_keys($payload),
         ]);
 
@@ -83,7 +99,15 @@ class PaydunyaWebhookHandler
             // Set TenantContext so MercurePublisher can namespace topics
             $this->tenantContext->set($tenant);
 
-            $this->processPayment($payload, $providedSecret, $tenantSlug);
+            if ($isSaas) {
+                // Flux SaaS : SaasInvoice est dans public.saas_invoices ;
+                // le search_path tenant est inoffensif (on accède à public.*
+                // par nom qualifié) — on garde le même pattern que le flux
+                // métier pour la cohérence du finally.
+                $this->processSaasPayment($payload, $providedSecret, $tenantSlug);
+            } else {
+                $this->processPayment($payload, $providedSecret, $tenantSlug);
+            }
         } catch (\Throwable $e) {
             $this->logger->error('IPN processing error', [
                 'tenant_slug' => $tenantSlug,
@@ -243,6 +267,118 @@ class PaydunyaWebhookHandler
                 'error'      => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Flux IPN pour les factures SaaS (abonnements StayOS).
+     *
+     * Structure identique au flux métier (lookup → secret → confirm →
+     * amount check → section critique avec verrou) mais sur SaasInvoice
+     * dans public.saas_invoices.
+     *
+     * Décision : sur secret invalide / amount mismatch / confirmation
+     * non "completed", on NE marque PAS la SaasInvoice en FAILED ici —
+     * on log et on sort. C'est uniquement le scheduler quotidien à
+     * `dueAt` qui décide de la suspension. Rationale : Paydunya peut
+     * envoyer plusieurs IPN intermédiaires avec des montants ou des
+     * statuts incohérents (re-tentatives, paiements partiels d'OM),
+     * il vaut mieux attendre la confirmation finale ou l'échéance.
+     */
+    private function processSaasPayment(array $payload, string $providedSecret, string $tenantSlug): void
+    {
+        $gatewayToken = $payload['invoice']['token'] ?? null;
+
+        if ($gatewayToken === null || $gatewayToken === '') {
+            $this->logger->warning('IPN saas: missing gateway token in payload', [
+                'tenant_slug' => $tenantSlug,
+            ]);
+            return;
+        }
+
+        $invoice = $this->saasInvoiceRepository->findByPaydunyaToken($gatewayToken);
+
+        if ($invoice === null) {
+            $this->logger->warning('IPN saas: invoice not found for token', [
+                'gateway_token' => $gatewayToken,
+                'tenant_slug'   => $tenantSlug,
+            ]);
+            return;
+        }
+
+        // Idempotence : si déjà PAID, sortir sans rien faire.
+        if ($invoice->getStatus() === SaasInvoiceStatus::PAID->value) {
+            $this->logger->info('IPN saas: already paid, skipping', [
+                'invoice_number' => $invoice->getNumber(),
+            ]);
+            return;
+        }
+
+        // Secret stocké par facture (cf. SaasInvoiceService::charge).
+        $storedSecret = $invoice->getCallbackSecret();
+
+        if ($storedSecret === null || !hash_equals($storedSecret, $providedSecret)) {
+            $this->logger->warning('IPN saas: invalid callback secret', [
+                'invoice_number' => $invoice->getNumber(),
+                'tenant_slug'    => $tenantSlug,
+            ]);
+            return;
+        }
+
+        // Reconfirmation serveur-à-serveur (anti-fraude).
+        $gateway      = $this->gatewayRegistry->get('paydunya');
+        $confirmation = $gateway->confirmPayment($gatewayToken);
+
+        if (!$confirmation->ok || $confirmation->status !== 'completed') {
+            $this->logger->warning('IPN saas: server-side confirmation failed', [
+                'invoice_number' => $invoice->getNumber(),
+                'status'         => $confirmation->status ?? 'unknown',
+            ]);
+            return;
+        }
+
+        // Vérification du montant (anti-fraude).
+        $expectedAmount = (int) round((float) $invoice->getAmountXof());
+
+        if ($confirmation->amountXof !== null && $confirmation->amountXof !== $expectedAmount) {
+            $this->logger->error('IPN saas: amount mismatch', [
+                'invoice_number'  => $invoice->getNumber(),
+                'expected_amount' => $expectedAmount,
+                'received_amount' => $confirmation->amountXof,
+            ]);
+            return;
+        }
+
+        // Section critique : verrou pessimiste pour bloquer le double IPN.
+        $invoiceId = $invoice->getId();
+        $this->entityManager->wrapInTransaction(function () use ($invoiceId, $confirmation, $tenantSlug): void {
+            /** @var SaasInvoice $locked */
+            $locked = $this->entityManager->find(
+                SaasInvoice::class,
+                $invoiceId,
+                LockMode::PESSIMISTIC_WRITE,
+            );
+
+            // Idempotence DANS le verrou.
+            if ($locked->getStatus() === SaasInvoiceStatus::PAID->value) {
+                $this->logger->info('IPN saas: already paid (locked check), skipping', [
+                    'invoice_number' => $locked->getNumber(),
+                ]);
+                return;
+            }
+
+            $paymentRef = $confirmation->raw['receipt_identifier']
+                ?? $confirmation->raw['invoice']['receipt_identifier']
+                ?? $confirmation->raw['receipt_url']
+                ?? null;
+
+            $this->saasInvoiceService->markPaid($locked, is_string($paymentRef) ? $paymentRef : null);
+            $this->abonnementService->renewAfterPayment($locked);
+
+            $this->logger->info('IPN saas: invoice paid + subscription renewed', [
+                'invoice_number' => $locked->getNumber(),
+                'tenant_slug'    => $tenantSlug,
+            ]);
+        });
     }
 
     /**

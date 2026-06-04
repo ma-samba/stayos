@@ -76,6 +76,11 @@ function severityIcon(severity: NotificationSeverity): string {
 }
 
 function onToastClick(toast: typeof store.toasts[number]): void {
+  // Les toasts UI (post-action) n'ont pas de route associée.
+  if (toast.type === 'ui.feedback') {
+    dismiss(toast.id)
+    return
+  }
   const path = routeFor({
     id: toast.id,
     type: toast.type,

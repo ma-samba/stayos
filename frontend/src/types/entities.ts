@@ -319,6 +319,69 @@ export interface PeriodReport {
 }
 
 // ──────────────────────────────────────────────────────────────
+//  Abonnement SaaS (Sprint 12)
+// ──────────────────────────────────────────────────────────────
+
+export type SubscriptionStatus = 'trial' | 'active' | 'cancelled' | 'suspended'
+export type SaasInvoiceStatus  = 'draft' | 'pending' | 'paid' | 'failed' | 'cancelled'
+
+export interface Plan {
+  id: number
+  name: string
+  priceXof: string
+  priceEur: string | null
+  maxRooms: number | null
+  maxUsers: number | null
+  features: string[]
+}
+
+export interface SubscriptionUsage {
+  rooms: number
+  users: number
+}
+
+export interface Subscription {
+  id: string
+  status: SubscriptionStatus
+  billingCycle: string
+  trialEndsAt: string | null
+  currentPeriodStart: string | null
+  currentPeriodEnd: string | null
+  cancelledAt: string | null
+  plan: Plan
+  usage: SubscriptionUsage
+}
+
+export interface UpgradeResponse {
+  status: SubscriptionStatus
+  plan: string
+  currentPeriodStart: string | null
+  currentPeriodEnd: string | null
+  checkoutUrl?: string | null
+}
+
+export interface CancelResponse {
+  status: SubscriptionStatus
+  cancelledAt: string | null
+  accessUntil: string | null
+}
+
+export interface SaasInvoice {
+  id: string
+  number: string
+  status: SaasInvoiceStatus
+  amountXof: string
+  planName: string
+  periodStart: string
+  periodEnd: string
+  dueAt: string | null
+  paidAt: string | null
+  checkoutUrl: string | null
+  paymentReference: string | null
+  createdAt: string
+}
+
+// ──────────────────────────────────────────────────────────────
 //  Réponses API standard
 // ──────────────────────────────────────────────────────────────
 

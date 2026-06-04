@@ -45,9 +45,16 @@ const NOTIFICATION_AUDIENCE: Record<NotificationType, string[]> = {
   'alert.unassigned_tasks': ['MANAGER', 'RECEPTIONIST'],
 }
 
+/**
+ * Toasts émis par l'UI (post-action) — pas par Mercure. On
+ * réutilise la pile d'affichage mais avec un type spécifique
+ * 'ui.feedback' que routeFor ignore (pas de navigation au clic).
+ */
+export type UiToastType = 'ui.feedback'
+
 interface ToastEntry {
   id: string
-  type: NotificationType
+  type: NotificationType | UiToastType
   severity: Notification['severity']
   title: string
   body?: string
@@ -120,6 +127,26 @@ export const useNotificationsStore = defineStore('notifications', () => {
 
   function dismissToast(id: string): void {
     toasts.value = toasts.value.filter(t => t.id !== id)
+  }
+
+  /**
+   * Toast UI synchrone (succès/erreur post-action) — n'a pas de
+   * type Mercure et ne déclenche pas la navigation au clic. Pas
+   * d'anti-spam : l'utilisateur sait quand il a cliqué.
+   */
+  function pushUiToast(
+    severity: Notification['severity'],
+    title: string,
+    body?: string,
+  ): void {
+    toasts.value.push({
+      id:        makeToastId(),
+      type:      'ui.feedback',
+      severity,
+      title,
+      body,
+      createdAt: Date.now(),
+    })
   }
 
   // ── Actions principales ───────────────────────────────────
@@ -265,6 +292,7 @@ export const useNotificationsStore = defineStore('notifications', () => {
     connect,
     disconnect,
     dismissToast,
+    pushUiToast,
   }
 })
 

@@ -14,6 +14,12 @@ use App\Hotel\Billing\Domain\Gateway\PaymentGatewayInterface;
 use App\Hotel\Billing\Domain\Gateway\PaymentGatewayRegistry;
 use App\Hotel\Billing\Domain\Service\InvoiceService;
 use App\Hotel\Billing\Domain\Service\PaydunyaWebhookHandler;
+use App\Platform\Subscription\Domain\Entity\SaasInvoice;
+use App\Platform\Subscription\Domain\Entity\Subscription;
+use App\Platform\Subscription\Domain\Enum\SaasInvoiceStatus;
+use App\Platform\Subscription\Domain\Service\AbonnementService;
+use App\Platform\Subscription\Domain\Service\SaasInvoiceService;
+use App\Platform\Subscription\Infrastructure\Doctrine\SaasInvoiceRepository;
 use App\Platform\Tenant\Domain\Entity\Tenant;
 use App\Platform\Tenant\Infrastructure\Doctrine\TenantRepository;
 use App\Shared\Email\EmailService;
@@ -37,12 +43,16 @@ class PaydunyaWebhookHandlerTest extends TestCase
     private EmailService&MockObject $emailService;
     private MercurePublisher&MockObject $mercure;
     private TenantContext&MockObject $tenantContext;
+    private SaasInvoiceRepository&MockObject $saasInvoiceRepository;
+    private SaasInvoiceService&MockObject $saasInvoiceService;
+    private AbonnementService&MockObject $abonnementService;
     private PaydunyaWebhookHandler $handler;
 
     private const SECRET     = 'correct_secret_abc123';
     private const TENANT     = 'savana';
     private const TOKEN      = 'paydunya_token_xyz';
     private const GATEWAY    = 'paydunya';
+    private const SAAS_TOKEN = 'saas_paydunya_token_xyz';
 
     protected function setUp(): void
     {
@@ -54,6 +64,9 @@ class PaydunyaWebhookHandlerTest extends TestCase
         $this->emailService = $this->createMock(EmailService::class);
         $this->mercure = $this->createMock(MercurePublisher::class);
         $this->tenantContext = $this->createMock(TenantContext::class);
+        $this->saasInvoiceRepository = $this->createMock(SaasInvoiceRepository::class);
+        $this->saasInvoiceService = $this->createMock(SaasInvoiceService::class);
+        $this->abonnementService = $this->createMock(AbonnementService::class);
 
         $this->handler = new PaydunyaWebhookHandler(
             $this->gatewayRegistry,
@@ -64,6 +77,9 @@ class PaydunyaWebhookHandlerTest extends TestCase
             $this->emailService,
             $this->mercure,
             $this->tenantContext,
+            $this->saasInvoiceRepository,
+            $this->saasInvoiceService,
+            $this->abonnementService,
             new NullLogger(),
         );
     }
@@ -326,5 +342,133 @@ class PaydunyaWebhookHandlerTest extends TestCase
         $this->handler->handle($this->makePayload(), self::SECRET, self::TENANT);
 
         $this->assertSame(PaymentMethod::CARD, $payment->getMethodEnum());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  Flux SaaS (?saas=1) — Sprint 12
+    // ──────────────────────────────────────────────────────────────────────
+
+    private function makeSaasInvoice(
+        string $amount = '35000.00',
+        SaasInvoiceStatus $status = SaasInvoiceStatus::PENDING,
+        ?string $secret = self::SECRET,
+    ): SaasInvoice {
+        $tenant = new Tenant();
+        $tenant->setSlug(self::TENANT);
+        $tenant->setName('Hôtel Test');
+        $tenant->setSubdomain(self::TENANT);
+
+        $sub = new Subscription();
+        $sub->setTenant($tenant);
+
+        $invoice = new SaasInvoice();
+        $invoice->setTenant($tenant);
+        $invoice->setSubscription($sub);
+        $invoice->setNumber('SAAS-2026-00042');
+        $invoice->setPlanName('PRO');
+        $invoice->setAmountXof($amount);
+        $invoice->setPeriodStart(new \DateTimeImmutable('2026-06-01'));
+        $invoice->setPeriodEnd(new \DateTimeImmutable('2026-06-30'));
+        $invoice->setStatus($status);
+        $invoice->setPaydunyaToken(self::SAAS_TOKEN);
+        if ($secret !== null) {
+            $invoice->setCallbackSecret($secret);
+        }
+
+        $ref = new \ReflectionProperty(SaasInvoice::class, 'id');
+        $ref->setValue($invoice, Uuid::v4());
+
+        return $invoice;
+    }
+
+    private function makeSaasPayload(): array
+    {
+        return [
+            'invoice' => [
+                'token'  => self::SAAS_TOKEN,
+                'status' => 'completed',
+            ],
+        ];
+    }
+
+    public function testSaasIpnRoutesToSaasFlow(): void
+    {
+        $invoice = $this->makeSaasInvoice('35000.00', SaasInvoiceStatus::PENDING);
+
+        $this->stubTenantResolution();
+        $this->saasInvoiceRepository->method('findByPaydunyaToken')
+            ->with(self::SAAS_TOKEN)
+            ->willReturn($invoice);
+
+        $this->stubGatewayConfirmation(true, 'completed', 35000, ['receipt_identifier' => 'REC-123']);
+        $this->stubTransaction();
+        $this->em->method('find')
+            ->with(SaasInvoice::class)
+            ->willReturn($invoice);
+
+        // Le flux métier ne doit JAMAIS être touché.
+        $this->em->expects($this->never())->method('getRepository')->with(Payment::class);
+
+        $this->saasInvoiceService->expects($this->once())
+            ->method('markPaid')
+            ->with($invoice, 'REC-123');
+        $this->abonnementService->expects($this->once())
+            ->method('renewAfterPayment')
+            ->with($invoice);
+
+        $this->handler->handle($this->makeSaasPayload(), self::SECRET, self::TENANT, isSaas: true);
+    }
+
+    public function testSaasIpnInvalidSecret(): void
+    {
+        $invoice = $this->makeSaasInvoice('35000.00', SaasInvoiceStatus::PENDING);
+
+        $this->stubTenantResolution();
+        $this->saasInvoiceRepository->method('findByPaydunyaToken')->willReturn($invoice);
+
+        // Secret KO → ni confirm, ni markPaid, ni renew.
+        $this->gatewayRegistry->expects($this->never())->method('get');
+        $this->saasInvoiceService->expects($this->never())->method('markPaid');
+        $this->abonnementService->expects($this->never())->method('renewAfterPayment');
+
+        $this->handler->handle($this->makeSaasPayload(), 'wrong_secret', self::TENANT, isSaas: true);
+
+        // L'invoice reste PENDING — la décision FAILED revient au scheduler à dueAt.
+        $this->assertSame(SaasInvoiceStatus::PENDING->value, $invoice->getStatus());
+    }
+
+    public function testSaasIpnAmountMismatchStaysPending(): void
+    {
+        $invoice = $this->makeSaasInvoice('35000.00', SaasInvoiceStatus::PENDING);
+
+        $this->stubTenantResolution();
+        $this->saasInvoiceRepository->method('findByPaydunyaToken')->willReturn($invoice);
+
+        // Confirm OK mais montant divergent (anti-fraude).
+        $this->stubGatewayConfirmation(true, 'completed', 10000);
+
+        // Pas de markPaid ni de renew.
+        $this->saasInvoiceService->expects($this->never())->method('markPaid');
+        $this->abonnementService->expects($this->never())->method('renewAfterPayment');
+
+        $this->handler->handle($this->makeSaasPayload(), self::SECRET, self::TENANT, isSaas: true);
+
+        // L'invoice reste PENDING — le scheduler suspendra à dueAt si pas réglée.
+        $this->assertSame(SaasInvoiceStatus::PENDING->value, $invoice->getStatus());
+    }
+
+    public function testSaasIpnIdempotent(): void
+    {
+        $invoice = $this->makeSaasInvoice('35000.00', SaasInvoiceStatus::PAID);
+
+        $this->stubTenantResolution();
+        $this->saasInvoiceRepository->method('findByPaydunyaToken')->willReturn($invoice);
+
+        // Déjà PAID : sortie précoce avant confirm gateway / markPaid / renew.
+        $this->gatewayRegistry->expects($this->never())->method('get');
+        $this->saasInvoiceService->expects($this->never())->method('markPaid');
+        $this->abonnementService->expects($this->never())->method('renewAfterPayment');
+
+        $this->handler->handle($this->makeSaasPayload(), self::SECRET, self::TENANT, isSaas: true);
     }
 }

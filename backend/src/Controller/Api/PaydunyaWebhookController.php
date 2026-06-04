@@ -30,6 +30,9 @@ class PaydunyaWebhookController extends AbstractController
     {
         $secret     = $request->query->get('secret', '');
         $tenantSlug = $request->query->get('tenant', '');
+        // `?saas=1` distingue les IPN d'abonnement SaaS (SaasInvoice
+        // dans public.saas_invoices) des paiements clients hôtel.
+        $isSaas     = $request->query->getBoolean('saas');
 
         if ($secret === '' || $tenantSlug === '') {
             $this->logger->warning('Paydunya IPN: missing query params', [
@@ -64,7 +67,7 @@ class PaydunyaWebhookController extends AbstractController
         }
 
         try {
-            $this->webhookHandler->handle($payload, $secret, $tenantSlug);
+            $this->webhookHandler->handle($payload, $secret, $tenantSlug, $isSaas);
         } catch (\Throwable $e) {
             // Absorber toute erreur — ne jamais renvoyer d'erreur a Paydunya
             $this->logger->error('Paydunya IPN: unhandled error', [

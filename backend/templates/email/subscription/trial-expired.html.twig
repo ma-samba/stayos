@@ -1,0 +1,26 @@
+{% extends 'email/subscription/_base.html.twig' %}
+
+{% block content %}
+    <p>Bonjour {{ recipientName }},</p>
+
+    <h1>Votre essai a expiré</h1>
+
+    <div class="alert-box danger">
+        L'accès à <strong>{{ hotelName }}</strong> a été suspendu suite à l'expiration
+        de votre période d'essai gratuit le {{ trialEndsAt|date('d/m/Y') }}.
+    </div>
+
+    <p>
+        Vos données sont conservées pendant 30 jours. Vous pouvez réactiver votre
+        accès à tout moment en choisissant un abonnement.
+    </p>
+
+    <p>
+        <a class="cta" href="{{ pricingUrl }}">Choisir un plan et réactiver</a>
+    </p>
+
+    <p style="font-size:13px;color:#6B6459;">
+        Une question avant de vous engager ? Notre équipe est à votre écoute à
+        <a href="mailto:support@stayos.sn">support@stayos.sn</a>.
+    </p>
+{% endblock %}

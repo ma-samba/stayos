@@ -1,0 +1,52 @@
+{% extends 'email/subscription/_base.html.twig' %}
+
+{% block content %}
+    <p>Bonjour {{ recipientName }},</p>
+
+    <h1>Échec de paiement</h1>
+
+    <div class="alert-box danger">
+        Le paiement de la facture <span class="ref">{{ invoice.number }}</span>
+        n'a pas pu être encaissé.
+    </div>
+
+    <div class="details">
+        <div class="details-row">
+            <span class="details-label">Hôtel</span>
+            <span>{{ hotelName }}</span>
+        </div>
+        <div class="details-row">
+            <span class="details-label">Plan</span>
+            <span>{{ invoice.planName }}</span>
+        </div>
+        <div class="details-row">
+            <span class="details-label">Période</span>
+            <span>{{ invoice.periodStart|date('d/m/Y') }} – {{ invoice.periodEnd|date('d/m/Y') }}</span>
+        </div>
+        <div class="details-row" style="font-weight:500;">
+            <span>Montant dû</span>
+            <span>{{ invoice.amountXof|number_format(0, ',', ' ') }} FCFA</span>
+        </div>
+        {% if invoice.dueAt %}
+        <div class="details-row">
+            <span class="details-label">Échéance</span>
+            <span>{{ invoice.dueAt|date('d/m/Y') }}</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <p>
+        Pour éviter la suspension de votre accès, réglez la facture dès maintenant :
+    </p>
+
+    {% if invoice.checkoutUrl %}
+    <p>
+        <a class="cta danger" href="{{ invoice.checkoutUrl }}">Régler la facture</a>
+    </p>
+    {% endif %}
+
+    <p style="font-size:13px;color:#6B6459;">
+        Sans règlement avant l'échéance, votre accès à StayOS sera automatiquement
+        suspendu.
+    </p>
+{% endblock %}

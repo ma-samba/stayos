@@ -34,6 +34,15 @@ class TenantMiddleware implements EventSubscriberInterface
         '/api/payments/paydunya/ipn',
     ];
 
+    /**
+     * Chemins où le tenant est résolu mais où la suspension ne bloque
+     * PAS l'accès — permet au manager d'un tenant suspendu de consulter
+     * son abonnement et de régulariser sans se heurter à un 402.
+     */
+    private const SUSPENDED_ALLOWED_PREFIXES = [
+        '/api/subscription',
+    ];
+
     public function __construct(
         private readonly TenantRepository $tenantRepository,
         private readonly TenantContext    $tenantContext,
@@ -90,7 +99,15 @@ class TenantMiddleware implements EventSubscriberInterface
             throw new TenantNotFoundException($slug);
         }
 
-        if (!TenantStatus::from($tenant->getStatus())->isAccessible()) {
+        $allowSuspended = false;
+        foreach (self::SUSPENDED_ALLOWED_PREFIXES as $prefix) {
+            if (str_starts_with($path, $prefix)) {
+                $allowSuspended = true;
+                break;
+            }
+        }
+
+        if (!$allowSuspended && !TenantStatus::from($tenant->getStatus())->isAccessible()) {
             throw new TenantSuspendedException($slug);
         }
 

@@ -61,6 +61,19 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
 
+    // 402 → tenant suspendu. Rediriger vers la page dédiée et laisser
+    // l'erreur se propager pour que le code appelant ne traite pas la
+    // réponse comme valide.
+    if (error.response?.status === 402) {
+      try {
+        const router = (await import('@/router')).default
+        if (router.currentRoute.value.path !== '/account-suspended') {
+          await router.push('/account-suspended')
+        }
+      } catch { /* noop */ }
+      return Promise.reject(error)
+    }
+
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {

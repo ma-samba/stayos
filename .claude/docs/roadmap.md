@@ -5,9 +5,9 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **Sprint 12 — Abonnements & plans**
-- Dernière mise à jour : 2 juin 2026
-- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+- Sprint courant : **Sprint 13 — SuperAdmin & métriques plateforme**
+- Dernière mise à jour : 5 juin 2026
+- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
 
 ---
 
@@ -381,28 +381,137 @@ Phase 6 — Production      (S14)    : Sécurité finale, déploiement
 
 ---
 
-### ⬜ Sprint 12 — Abonnements & plans
+### ✅ Sprint 12 — Abonnements & plans
 **Objectif** : choisir un plan, payer l'abonnement, upgrader/downgrader.
 
 **Backend**
-- [ ] `AbonnementService` — create trial, activate, suspend, checkExpirations
-- [ ] `SubscriptionController` — voir plan, upgrader, annuler
-- [ ] `SaasInvoiceService` — facturation mensuelle via Paydunya
-- [ ] Scheduler Messenger : vérification expirations quotidienne
-- [ ] Emails : essai expire J-7, J-1, suspendu
+- [x] `Platform/Subscription/Domain/Service/AbonnementService` —
+  cycle de vie complet (createTrial 14j, upgrade, cancel, suspend,
+  reactivate, renewAfterPayment, checkExpirations). Anti-spam
+  relance par `lastNotificationType`.
+- [x] `Platform/Subscription/Domain/Service/SaasInvoiceService` —
+  séparation explicite de `Hotel/Billing/InvoiceService` métier.
+  `generateForPeriod` (snapshot plan), `charge` (Paydunya),
+  `markPaid` idempotent, `markFailed`. Méthode `buildTenantUrl`
+  pour préfixer `returnUrl`/`cancelUrl` avec le sous-domaine
+  tenant.
+- [x] `Platform/Subscription/Domain/Service/SubscriptionEmailService` —
+  extraction propre, 5 templates Twig (`trial-expiring-7d/1d`,
+  `trial-expired`, `payment-link`, `payment-failed`,
+  `payment-success`).
+- [x] `Controller/Api/SubscriptionController` —
+  `GET /subscription`, `/plans`, `/invoices` ; `POST /upgrade`,
+  `/cancel`. RBAC `ROLE_MANAGER`. `computeUsage` (rooms/users en
+  SQL brut sur le schema tenant courant).
+- [x] `Platform/Subscription/Application/Command/CheckSubscriptionsCommand`
+  (`stayos:subscriptions:check`) + handler MessageHandler.
+- [x] `Platform/Subscription/Application/MessageHandler/CheckSubscriptionsHandler` —
+  `SET search_path TO public` en début (handler hors HTTP),
+  isolation try/catch par tenant.
+- [x] Entité `SaasInvoice` dans `public.saas_invoices` (séparation
+  données plateforme vs données hôtel) + enum `SaasInvoiceStatus`
+  (DRAFT/PENDING/PAID/FAILED/CANCELLED).
+- [x] Migration globale : table `saas_invoices` + colonnes
+  `last_notification_sent_at`/`last_notification_type` sur
+  `subscriptions`.
+- [x] `PaydunyaWebhookHandler` étendu : routage `saas=1` ↔ métier,
+  flux SaaS reproduit le pattern anti-fraude (secret, confirmation
+  gateway, vérification montant, verrou pessimiste, idempotence
+  dans le verrou).
+- [x] `TenantMiddleware` — exemption `/api/subscription/*` du
+  blocage tenant suspendu pour permettre au manager de
+  régulariser.
+- [x] `services.yaml` — `default_backend_url`/`default_frontend_url`
+  passés en `%env(APP_BACKEND_URL)%` / `%env(FRONTEND_URL)%` (au
+  lieu d'URLs hardcodées).
 
 **Frontend**
-- [ ] `SubscriptionView.vue` — plan actuel + limites utilisées
-- [ ] `PricingView.vue` — cards plans + CTA upgrade
-- [ ] `UpgradeModal.vue` — confirmation + paiement Paydunya
-- [ ] `BillingHistoryView.vue` — historique factures SaaS
+- [x] `services/subscription.service.ts` — `getCurrent` (404 →
+  null), `getPlans`, `upgrade`, `cancel`, `getInvoices`.
+- [x] `services/tenant.ts` — helper `resolveTenantSlug`
+  (sous-domaine → fallback `VITE_DEFAULT_TENANT_SLUG`).
+- [x] `modules/subscription/views/SubscriptionView.vue` — bandeau
+  d'état (trial/active/cancelled/suspended), carte plan actuel,
+  stat cards utilisation (rooms/users avec seuil 80%),
+  confirmation inline d'annulation (pattern `confirmingSkip`).
+- [x] `modules/subscription/views/PricingView.vue` — cards
+  comparatives, `recommendedPlanId` dynamique (plus cher
+  non-Enterprise), plan actuel grisé, toggle Mensuel/Annuel
+  (Annuel désactivé « Bientôt »).
+- [x] `modules/subscription/components/UpgradeModal.vue` —
+  distinction trial/active dans le message contextuel,
+  consommation `checkoutUrl` pour la bascule Paydunya.
+- [x] `modules/subscription/views/BillingHistoryView.vue` — stat
+  cards + table SaasInvoice + bouton « Régler » sur
+  pending/checkoutUrl.
+- [x] `modules/subscription/views/AccountSuspendedView.vue` — page
+  dédiée (sidebar masquée), bouton « J'ai régularisé, recharger »
+  qui teste l'accès via `GET /dashboard/today`.
+- [x] `modules/subscription/views/PaymentReturnView.vue` — retour
+  Paydunya succès avec polling court (3 s × 10) si encore
+  `pending` au moment du retour.
+- [x] `modules/subscription/views/PaymentCancelView.vue` — page
+  statique informative annulation.
+- [x] `modules/subscription/feature-labels.ts` — mapping feature →
+  libellé humanisé, réutilisable.
+- [x] `services/api.service.ts` — intercepteur 402 → redirection
+  `/account-suspended` (avec garde anti-boucle sur la route
+  courante).
+- [x] Routes `/subscription`, `/subscription/pricing`,
+  `/subscription/invoices`, `/account-suspended` (`hideSidebar`),
+  `/subscription/payment-return`, `/subscription/payment-cancel`.
+- [x] `MODULE_ACCESS.subscription = ['MANAGER']` dans
+  `auth.store`.
+- [x] Sidebar — entrée « Abonnement » (`ti-crown`) MANAGER-only.
+- [x] CORS dev : regex `*.localhost:5173` pour le multi-tenant
+  local.
+- [x] Helper auth — envoi du `X-Tenant-Slug` résolu dynamiquement
+  depuis le hostname courant.
 
 **Tests**
-- [ ] `SubscriptionTest` — essai expire → tenant suspendu
-- [ ] `SubscriptionTest` — upgrade → nouvelles features accessibles
-- [ ] `FeatureGuardTest` — feature Pro inaccessible en Starter
+- [x] `AbonnementServiceTest` (unit) — `createTrial`, upgrade
+  trial → active, cancel sans suspension immédiate,
+  `checkExpirations` trial expiré, période active expirée,
+  isolation erreurs par tenant.
+- [x] `SubscriptionControllerTest` (functional) — RBAC manager vs
+  autres rôles, isolation cross-tenant.
+- [x] `PaydunyaWebhookHandlerTest` étendu —
+  `testSaasIpnRoutesToSaasFlow`, `testSaasIpnInvalidSecret`,
+  `testSaasIpnAmountMismatch`, `testSaasIpnIdempotent`.
+- [x] Suite complète : 189 tests, 576 assertions, 0 failure,
+  1 skipped (Lexik rate limiter du backlog).
 
-**Livrable** : monétisation fonctionnelle, abonnements automatisés
+**Ajouts notables (Sprint 12)** — découverts et corrigés pendant
+les tests scénarisés
+- [x] Trou IPN SaaS : la première implémentation créait un
+  checkout avec callback `?saas=1` mais le webhook handler ne
+  routait pas dessus → factures bloquées en PENDING éternellement.
+  Correctif appliqué et testé bout en bout (ngrok + Paydunya
+  sandbox).
+- [x] 2 boutons « Passer en Pro » morts (Sprints 9 et 10) qui
+  pointaient dans le vide en attendant `/subscription/pricing` :
+  branchement + garde RBAC pour les non-managers.
+- [x] Lacune 402 frontend : le `TenantMiddleware` bloquait bien
+  les tenants suspendus avec 402, mais le front affichait juste
+  une erreur générique sur chaque page. Création de
+  `/account-suspended` + intercepteur axios dédié.
+- [x] Paramètre `default_backend_url` hardcodé en dur dans
+  `services.yaml` : passé en `%env(APP_BACKEND_URL)%` pour
+  permettre le switch dev/ngrok/prod sans toucher au code. Idem
+  `default_frontend_url`.
+- [x] `returnUrl` Paydunya tenant-aware : la passerelle redirigeait
+  sur `localhost:5173` au lieu de `{tenant}.localhost:5173` →
+  impossible de retomber sur le bon schema. Méthode
+  `buildTenantUrl` ajoutée à `SaasInvoiceService`.
+
+**Livrable** : abonnements complets de bout en bout. Un manager
+peut visualiser, comparer les plans, upgrader, annuler, voir son
+historique. Le scheduler quotidien détecte trial expirant à J-7/J-1,
+suspend les comptes en fin d'essai non régularisés, génère les
+factures à échéance de période active, envoie le lien Paydunya,
+suspend après `dueAt` si non payé. IPN Paydunya routé correctement
+vers le flux SaaS, paiement → renouvellement automatique. UI
+`account-suspended` avec sortie via régularisation.
 
 ---
 
@@ -518,13 +627,14 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   saisonnier, remise promo) pour une lecture claire sur le PDF/email.
   Implique une reflexion fiscale (traitement de la remise sur la TVA)
   a valider avec un comptable local avant implementation.
-- **Feature-gating complet (Sprint 12)** : le `FeatureChecker` actuel
-  ne garde QUE l'ecriture des tarifs. Au Sprint 12 (Abonnements),
-  generaliser le gating a toutes les features Pro (`advanced_reports`,
-  `channel_manager`, `multi_property`, `api_access`) via un mecanisme
-  transverse (attribut/voter Symfony plutot qu'appels manuels
-  `assertEnabled` dans chaque controller), et ajouter
-  `FeatureGuardTest`.
+- **Feature-gating complet — PARTIEL au Sprint 12** : le
+  `FeatureChecker` couvre désormais 4 endpoints (2 écriture tarifs
+  `revenue_management`, 2 rapports `advanced_reports`) via appels
+  manuels `assertEnabled` au début de chaque controller.
+  La généralisation via attribut/voter Symfony reste à faire,
+  ainsi que `FeatureGuardTest`. Voir la nouvelle section
+  « Contrôle d'abonnement & feature-gating » qui détaille le
+  travail restant.
 - **Ciblage type de chambre pour les tarifs saisonniers** : comme les
   plans, `SeasonalRate` a un champ `roomType` nullable cote backend mais
   `SeasonalRateForm` ne l'expose pas (toutes les saisons visent "tous
@@ -534,6 +644,41 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   accepte `applicableRoomTypeIds` / `applicableRatePlanIds` (restriction
   d'une promo a certains types/plans), mais `PromotionForm` ne les
   expose pas encore. A ajouter si le besoin de ciblage fin se confirme.
+
+### Contrôle d'abonnement & feature-gating
+- **Limites quantitatives des plans (priorité haute, avant prod)** :
+  les compteurs `maxRooms` et `maxUsers` des plans sont aujourd'hui
+  PUREMENT INFORMATIFS. `SubscriptionController::computeUsage` les
+  expose dans `SubscriptionView` mais aucun garde-fou n'empêche un
+  compte Starter de dépasser. À implémenter : check dans
+  `RoomService::create` via un nouveau
+  `SubscriptionLimitChecker::assertCanAddRoom()` (lecture
+  subscription + count des rooms actives), check équivalent dans
+  la future création d'utilisateurs staff (POST `/api/staff` qui
+  n'existe pas encore — l'endpoint actuel est read-only). Côté
+  front : griser le bouton « Nouvelle chambre » + tooltip
+  explicatif si à la limite. À traiter avant Sprint 14.
+- **Feature-gating via voter Symfony (priorité moyenne, Sprint 14)** :
+  aujourd'hui les features sont gardées par appels manuels à
+  `featureChecker->assertEnabled('feature_name')` au début des
+  endpoints concernés (2 endpoints écriture tarifs
+  `revenue_management`, 2 endpoints rapports `advanced_reports`).
+  Risque : un futur endpoint ajouté sans cet appel ne sera pas
+  gardé et le bug peut rester invisible des mois (même mécanique
+  que le `catch` muet Mercure du Sprint 11). À implémenter :
+  attribut `#[IsGranted('FEATURE', 'revenue_management')]` + voter
+  dédié qui appelle `FeatureChecker::isEnabled`. Couvrir par un
+  `FeatureGuardTest` global qui vérifie que tous les endpoints
+  critiques retournent 422 `PLAN_LIMIT` pour un Starter (test
+  prévu dans le prompt Sprint 12 mais non livré).
+- **Features annoncées sans contenu (priorité basse, décision UX
+  produit)** : les fixtures déclarent `channel_manager`,
+  `multi_property`, `api_access` dans le plan Pro. Ces features
+  n'existent pas encore dans le code → promesse vide à terme.
+  Trois options à arbitrer : (A) retirer ces clés des fixtures
+  (honnête) ; (B) garder mais badger « Bientôt disponible » dans
+  `feature-labels.ts` et `PricingView` (transparent) ; (C) laisser
+  tel quel (risqué).
 
 ### Dashboard & rapports — enrichissements
 - **Comparaison vs periode precedente** : afficher la variation % des
@@ -616,6 +761,31 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   etc.) ont peut-être des catch équivalents qui avalent les
   exceptions sans tracer. Une demi-heure de revue qui peut éviter le
   prochain bug fantôme — à prévoir avant le Sprint 14.
+- **Tests de retour Paydunya non couverts (Sprint 12)** : les pages
+  `PaymentReturnView` et `PaymentCancelView`, ainsi que le polling
+  `pending`, ne sont pas couverts par des tests automatisés. Le
+  paiement Paydunya bout en bout exige Paydunya sandbox + ngrok,
+  inadapté à la CI. Envisager une commande de test
+  `stayos:test:paydunya-ipn` qui mocke `PaydunyaService` et envoie
+  un IPN simulé directement sur le webhook — utile pour la CI et
+  pour valider la chaîne SaaS en dev sans Paydunya réel.
+- **Audit des paramètres Symfony hardcodés** : `services.yaml`
+  contenait `default_backend_url: 'http://localhost:8080'` en dur
+  au lieu de `%env(APP_BACKEND_URL)%`. Auditer tous les
+  `parameters:` de `services.yaml` et des autres yaml pour
+  vérifier qu'aucune URL, secret ou config sensible n'est figée —
+  tout doit être résolu via `%env(VAR)%` avec un défaut explicite
+  si besoin. Sinon les variables d'env ne servent à rien et la
+  prod utilisera des valeurs de dev.
+
+#### Deprecations PHP/Symfony (priorité basse)
+- **`StaffUser::eraseCredentials()`** à annoter `#[\Deprecated]` —
+  Symfony 7.3+ recommande l'attribut. 5 minutes, à faire à la
+  prochaine touche du fichier.
+- **Sprint d'upgrade Doctrine ORM 4.0** : les deprecations
+  Doctrine représentent ~121 occurrences au `make test`. Migration
+  possible quand `doctrine/doctrine-bundle` aura pris en charge
+  ORM 4.0. Probablement plusieurs mois dans le futur.
 
 ### Mercure — durcissement production
 - **Abonnements anonymes en dev, à durcir en prod** : la config
@@ -654,3 +824,37 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   `SuperAdminFixtures` séparés) qui ne correspond pas au code (tout
   regroupé dans `HotelDataFixtures`, `ReservationFixtures`, etc.).
   Aligner sur la réalité du code.
+- **deploy.md** : à compléter avec la checklist Heroku réelle
+  (Config Vars à définir, équivalences `.env` ↔ Config Vars,
+  add-ons Heroku Postgres/Redis, deuxième app Mercure, Vercel pour
+  le frontend). Une vraie checklist plutôt que des généralités. À
+  faire en parallèle du Sprint 14.
+
+### Leçons d'architecture (réflexes à intégrer)
+Principes transverses tirés des découvertes en cours de sprint —
+ce ne sont pas des tickets mais des réflexes à appliquer.
+
+- **Cohérence destination ↔ point de départ** : à chaque sprint qui
+  livre une nouvelle « destination » (page, endpoint, feature),
+  passer une revue rapide des « points de départ » dans le code
+  qui auraient dû y pointer (CTA « Passer en Pro » morts depuis
+  les Sprints 9 et 10, branchés seulement au Sprint 12). 30 min
+  de revue systématique qui évitent une demi-douzaine de boutons
+  morts.
+- **Cohérence callbacks externes** : à chaque fois qu'on configure
+  un `returnUrl` / `cancelUrl` côté backend qui sera atteint par
+  un service tiers (Paydunya, mais aussi Mailjet, Stripe, etc.),
+  vérifier que la route correspondante existe côté front ET
+  qu'elle gère correctement le contexte tenant. Les pages
+  `payment-return`/`cancel` manquaient au Sprint 12 — découvertes
+  uniquement en test manuel.
+- **Anti-spam d'emails à enrichir si séquence change** : l'anti-
+  spam `markNotification` actuel compare uniquement le dernier
+  type envoyé. Acceptable V1, fragile si on ajoute des étapes de
+  relance (ex : J-3 entre J-7 et J-1) ou si on revient à un type
+  antérieur. Refactor à prévoir le jour où la séquence s'enrichit.
+- **Race condition théorique sur `generateNextNumber`** :
+  `SaasInvoiceRepository::generateNextNumber` fait un `COUNT(*)`
+  non transactionnel pour produire `SAAS-YYYY-NNNNN`. Probabilité
+  quasi nulle avec un scheduler/jour. À durcir si on déploie
+  plusieurs workers en parallèle (verrou ou séquence Postgres).

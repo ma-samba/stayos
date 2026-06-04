@@ -4,8 +4,7 @@ namespace App\Platform\Auth\Domain\Service;
 
 use App\Platform\Auth\Domain\Entity\StaffUser;
 use App\Platform\Subscription\Domain\Entity\Plan;
-use App\Platform\Subscription\Domain\Entity\Subscription;
-use App\Platform\Subscription\Infrastructure\Doctrine\SubscriptionRepository;
+use App\Platform\Subscription\Domain\Service\AbonnementService;
 use App\Platform\Tenant\Domain\Entity\Tenant;
 use App\Platform\Tenant\Domain\Service\TenantProvisioner;
 use App\Platform\Tenant\Infrastructure\Doctrine\TenantRepository;
@@ -21,6 +20,7 @@ class OnboardingService
         private readonly OtpService                 $otpService,
         private readonly EntityManagerInterface     $entityManager,
         private readonly UserPasswordHasherInterface $passwordHasher,
+        private readonly AbonnementService          $abonnementService,
     ) {}
 
     /**
@@ -66,17 +66,10 @@ class OnboardingService
             $this->entityManager->flush();
         }
 
-        // 5. Créer la Subscription TRIAL (14 jours)
-        $tz = new \DateTimeZone('Africa/Dakar');
-
-        $subscription = new Subscription();
-        $subscription->setTenant($tenant);
-        $subscription->setPlan($plan);
-        $subscription->setStatus('trial');
-        $subscription->setTrialEndsAt(new \DateTimeImmutable('+14 days', $tz));
-
-        $this->entityManager->persist($subscription);
-        $this->entityManager->flush();
+        // 5. Créer la Subscription TRIAL (14 jours) via AbonnementService —
+        //    point d'entrée unique pour la création de subscriptions, garantit
+        //    que le statut/dates restent cohérents avec le scheduler.
+        $this->abonnementService->createTrial($tenant, $plan);
 
         // 6-8. Créer le StaffUser dans le schema tenant
         // Le finally garantit que search_path est toujours réinitialisé

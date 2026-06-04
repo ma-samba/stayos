@@ -1,0 +1,30 @@
+{% extends 'email/subscription/_base.html.twig' %}
+
+{% block content %}
+    <p>Bonjour {{ recipientName }},</p>
+
+    <h1>Paiement confirmé — merci !</h1>
+
+    <p>
+        La facture <span class="ref">{{ invoice.number }}</span> a bien été réglée
+        pour <strong>{{ hotelName }}</strong>.
+    </p>
+
+    <div class="amount">{{ invoice.amountXof|number_format(0, ',', ' ') }} FCFA</div>
+
+    <div class="details">
+        <div class="details-row">
+            <span class="details-label">Plan</span>
+            <span>{{ invoice.planName }}</span>
+        </div>
+        <div class="details-row">
+            <span class="details-label">Période reconduite</span>
+            <span>{{ nextPeriodStart|date('d/m/Y') }} – {{ nextPeriodEnd|date('d/m/Y') }}</span>
+        </div>
+    </div>
+
+    <p style="font-size:13px;color:#6B6459;">
+        Vous trouverez le détail de toutes vos factures dans la section
+        Abonnement de votre tableau de bord.
+    </p>
+{% endblock %}

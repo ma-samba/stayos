@@ -3,6 +3,7 @@
 namespace App\Platform\Subscription\Domain\Entity;
 
 use Doctrine\ORM\Mapping as ORM;
+use Symfony\Component\Serializer\Attribute\Groups;
 
 #[ORM\Entity]
 #[ORM\Table(name: 'plans', schema: 'public')]
@@ -11,27 +12,35 @@ class Plan
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column(type: 'integer')]
+    #[Groups(['plan:read', 'subscription:read'])]
     private ?int $id = null;
 
     #[ORM\Column(length: 20)]
+    #[Groups(['plan:read', 'subscription:read'])]
     private string $name;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2)]
+    #[Groups(['plan:read', 'subscription:read'])]
     private string $priceXof;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2, nullable: true)]
+    #[Groups(['plan:read', 'subscription:read'])]
     private ?string $priceEur = null;
 
     #[ORM\Column(type: 'integer', nullable: true)]
+    #[Groups(['plan:read', 'subscription:read'])]
     private ?int $maxRooms = null;
 
     #[ORM\Column(type: 'integer', nullable: true)]
+    #[Groups(['plan:read', 'subscription:read'])]
     private ?int $maxUsers = null;
 
     #[ORM\Column(type: 'json')]
+    #[Groups(['plan:read', 'subscription:read'])]
     private array $features = [];
 
     #[ORM\Column(options: ['default' => true])]
+    #[Groups(['plan:read'])]
     private bool $isActive = true;
 
     public function getId(): ?int

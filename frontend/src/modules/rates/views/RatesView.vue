@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
 import { rateService } from '@/services/rate.service'
 import { roomService } from '@/services/room.service'
@@ -10,8 +11,13 @@ import SeasonalRateForm from '../components/SeasonalRateForm.vue'
 import PromotionForm from '../components/PromotionForm.vue'
 import RoomTypeForm from '../components/RoomTypeForm.vue'
 
-const auth = useAuthStore()
+const auth   = useAuthStore()
+const router = useRouter()
 const canWrite = auth.hasFeature('revenue_management')
+
+function gotoPricing(): void {
+  router.push('/subscription/pricing')
+}
 
 // ── Tabs ──
 
@@ -144,7 +150,11 @@ onMounted(fetchAll)
           La gestion des tarifs avances est disponible avec le plan Pro. Vous pouvez consulter les tarifs existants.
         </div>
       </div>
-      <button class="btn btn-gold btn-sm" style="margin-left:auto; white-space:nowrap;">
+      <button
+        class="btn btn-gold btn-sm"
+        style="margin-left:auto; white-space:nowrap;"
+        @click="gotoPricing()"
+      >
         <i class="ti ti-star" aria-hidden="true"></i> Passer en Pro
       </button>
     </div>

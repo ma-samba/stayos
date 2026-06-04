@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useDashboardStore } from '@/stores/dashboard.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { formatCurrency } from '@/utils/currency'
@@ -7,10 +8,16 @@ import OccupancyChart from '@/modules/dashboard/components/OccupancyChart.vue'
 import RevenueChart from '@/modules/dashboard/components/RevenueChart.vue'
 import SoldNightsChart from '@/modules/dashboard/components/SoldNightsChart.vue'
 
-const store = useDashboardStore()
-const auth  = useAuthStore()
+const store  = useDashboardStore()
+const auth   = useAuthStore()
+const router = useRouter()
 
-const canSeeReports = computed(() => auth.hasFeature('advanced_reports'))
+const canSeeReports         = computed(() => auth.hasFeature('advanced_reports'))
+const canManageSubscription = computed(() => auth.canAccess('subscription'))
+
+function gotoPricing(): void {
+  router.push('/subscription/pricing')
+}
 
 const todayLabel = computed(() => {
   const d = new Date()
@@ -154,9 +161,20 @@ onUnmounted(() => {
       <p class="t-muted" style="font-size:13px; margin-bottom:12px;">
         Occupation, revenus et RevPAR sur période — disponible avec le plan Pro.
       </p>
-      <button class="btn btn-gold btn-sm">
-        <i class="ti ti-star"></i> Passer en Pro
+      <button
+        v-if="canManageSubscription"
+        class="btn btn-gold btn-sm"
+        @click="gotoPricing()"
+      >
+        <i class="ti ti-star" aria-hidden="true"></i> Passer en Pro
       </button>
+      <p
+        v-else
+        class="t-muted"
+        style="font-size:12px; margin-top:8px;"
+      >
+        Contactez le manager de votre hôtel pour souscrire au plan Pro.
+      </p>
     </div>
 
     <!-- Rapports disponibles -->

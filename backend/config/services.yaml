@@ -1,6 +1,6 @@
 parameters:
-    default_frontend_url: 'http://localhost:5173'
-    default_backend_url: 'http://localhost:8080'
+    default_frontend_url: '%env(FRONTEND_URL)%'
+    default_backend_url: '%env(APP_BACKEND_URL)%'
 
 services:
     _defaults:
