@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
+import { useSuperAdminStore } from '@/stores/superadmin.store'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -118,6 +119,36 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/modules/subscription/views/AccountSuspendedView.vue'),
     meta: { requiresAuth: true, title: 'Compte suspendu', hideSidebar: true },
   },
+
+  // ── SuperAdmin (back-office plateforme) ──
+  {
+    path: '/superadmin',
+    redirect: '/superadmin/metrics',
+  },
+  {
+    path: '/superadmin/login',
+    name: 'superadmin-login',
+    component: () => import('@/modules/superadmin/views/SuperAdminLoginView.vue'),
+    meta: { layout: 'superadmin', requiresAuth: false, title: 'SuperAdmin — Connexion' },
+  },
+  {
+    path: '/superadmin/tenants',
+    name: 'superadmin-tenants',
+    component: () => import('@/modules/superadmin/views/TenantsListView.vue'),
+    meta: { layout: 'superadmin', requiresSuperAdmin: true, title: 'Tenants' },
+  },
+  {
+    path: '/superadmin/tenants/:slug',
+    name: 'superadmin-tenant-detail',
+    component: () => import('@/modules/superadmin/views/TenantDetailView.vue'),
+    meta: { layout: 'superadmin', requiresSuperAdmin: true, title: 'Détail tenant' },
+  },
+  {
+    path: '/superadmin/metrics',
+    name: 'superadmin-metrics',
+    component: () => import('@/modules/superadmin/views/PlatformMetricsView.vue'),
+    meta: { layout: 'superadmin', requiresSuperAdmin: true, title: 'Métriques plateforme' },
+  },
 ]
 
 const router = createRouter({
@@ -128,6 +159,24 @@ const router = createRouter({
 // ── Guard d'authentification + RBAC module ───────────────────
 
 router.beforeEach((to) => {
+  // ── SuperAdmin : guard isolé du staff ──
+  if (to.meta.requiresSuperAdmin) {
+    const superadmin = useSuperAdminStore()
+    if (!superadmin.isAuthenticated) {
+      return { path: '/superadmin/login', query: { redirect: to.fullPath } }
+    }
+    return
+  }
+
+  // Déjà authentifié SuperAdmin et on essaie d'aller sur la page de login → métriques
+  if (to.path === '/superadmin/login') {
+    const superadmin = useSuperAdminStore()
+    if (superadmin.isAuthenticated) {
+      return { path: '/superadmin/metrics' }
+    }
+    return
+  }
+
   if (to.meta.requiresAuth) {
     const token = localStorage.getItem('token')
     if (!token) {

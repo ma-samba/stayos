@@ -18,6 +18,19 @@ export default defineConfig({
         target: 'http://nginx:80',
         changeOrigin: true,
       },
+      // Proxy /superadmin → backend Symfony (back-office SuperAdmin).
+      // Le bypass laisse passer les requêtes HTML du navigateur (chargement
+      // initial de la SPA sur /superadmin/login, etc.) vers Vite, et ne
+      // proxifie vers le backend que les appels API (Accept: application/json).
+      '/superadmin': {
+        target: 'http://nginx:80',
+        changeOrigin: true,
+        bypass: (req) => {
+          if (req.headers.accept?.includes('text/html')) {
+            return req.url
+          }
+        },
+      },
       // Proxy Mercure SSE
       '/.well-known/mercure': {
         target: 'http://mercure:9090',

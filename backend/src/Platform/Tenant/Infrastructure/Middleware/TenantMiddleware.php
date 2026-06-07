@@ -32,6 +32,7 @@ class TenantMiddleware implements EventSubscriberInterface
         '/api/health',
         '/api/onboarding/register',
         '/api/payments/paydunya/ipn',
+        '/superadmin',
     ];
 
     /**

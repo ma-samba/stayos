@@ -11,3 +11,7 @@ api_auth_login:
 api_auth_refresh:
     path:    /api/auth/refresh
     methods: [POST]
+
+superadmin_auth_login:
+    path:    /superadmin/auth/login
+    methods: [POST]

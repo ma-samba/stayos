@@ -56,6 +56,20 @@ security:
             pattern: ^/api/auth/refresh$
             stateless: true
 
+        superadmin_login:
+            pattern: ^/superadmin/auth/login$
+            stateless: true
+            login_throttling:
+                max_attempts: 5
+                interval: '1 minute'
+            json_login:
+                check_path: /superadmin/auth/login
+                username_path: email
+                password_path: password
+                success_handler: lexik_jwt_authentication.handler.authentication_success
+                failure_handler: lexik_jwt_authentication.handler.authentication_failure
+            provider: platform_user_provider
+
         superadmin:
             pattern: ^/superadmin
             stateless: true
@@ -78,6 +92,7 @@ security:
         - { path: ^/api/auth/verify-otp, roles: PUBLIC_ACCESS }
         - { path: ^/api, methods: [OPTIONS], roles: PUBLIC_ACCESS }
         - { path: ^/superadmin, methods: [OPTIONS], roles: PUBLIC_ACCESS }
+        - { path: ^/superadmin/auth/login, roles: PUBLIC_ACCESS }
         - { path: ^/superadmin,          roles: ROLE_SUPER_ADMIN }
         - { path: ^/api,                 roles: IS_AUTHENTICATED_FULLY }
 

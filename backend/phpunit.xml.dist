@@ -44,6 +44,7 @@
         <!-- App -->
         <env name="APP_DOMAIN" value="stayos.localhost" force="true" />
         <env name="APP_VERSION" value="test" force="true" />
+        <env name="APP_BACKEND_URL" value="http://localhost:8080" force="true" />
         <!-- Paydunya sandbox keys -->
         <env name="PAYDUNYA_MASTER_KEY" value="test_master_key" force="true" />
         <env name="PAYDUNYA_PRIVATE_KEY" value="test_private_key" force="true" />

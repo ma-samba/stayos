@@ -2,6 +2,7 @@
 
 namespace App\DataFixtures;
 
+use App\DataFixtures\Platform\SuperAdminFixtures;
 use Doctrine\Bundle\FixturesBundle\Fixture;
 use Doctrine\Common\DataFixtures\DependentFixtureInterface;
 use Doctrine\Persistence\ObjectManager;
@@ -12,6 +13,7 @@ use Doctrine\Persistence\ObjectManager;
  * Ordre effectif :
  *   PlanFixtures → TenantFixtures → HotelDataFixtures → GuestFixtures
  *   → ReservationFixtures → BillingFixtures → HousekeepingFixtures
+ *   SuperAdminFixtures est indépendante (schema public.users).
  */
 class AppFixtures extends Fixture implements DependentFixtureInterface
 {
@@ -26,6 +28,7 @@ class AppFixtures extends Fixture implements DependentFixtureInterface
             BillingFixtures::class,
             HousekeepingFixtures::class,
             RateFixtures::class,
+            SuperAdminFixtures::class,
         ];
     }
 

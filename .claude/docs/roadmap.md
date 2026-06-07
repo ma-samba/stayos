@@ -5,21 +5,21 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **Sprint 13 — SuperAdmin & métriques plateforme**
-- Dernière mise à jour : 5 juin 2026
-- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+- Sprint courant : **Sprint 13bis — Complétion SuperAdmin & gestion personnel**
+- Dernière mise à jour : 7 juin 2026
+- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
 
 ---
 
-## Vue d'ensemble — 14 sprints (~14 semaines)
+## Vue d'ensemble — 15 sprints (~15 semaines)
 
 ```
-Phase 1 — Fondations      (S1–S3)  : Infrastructure, Auth, BDD
-Phase 2 — Core métier     (S4–S7)  : Chambres, Réservations, Clients, Facturation
-Phase 3 — Opérations      (S8–S9)  : Housekeeping, Tarifs
-Phase 4 — Intelligence    (S10–S11): Dashboard, Temps réel
-Phase 5 — SaaS            (S12–S13): Abonnements, SuperAdmin
-Phase 6 — Production      (S14)    : Sécurité finale, déploiement
+Phase 1 — Fondations      (S1–S3)     : Infrastructure, Auth, BDD
+Phase 2 — Core métier     (S4–S7)     : Chambres, Réservations, Clients, Facturation
+Phase 3 — Opérations      (S8–S9)     : Housekeeping, Tarifs
+Phase 4 — Intelligence    (S10–S11)   : Dashboard, Temps réel
+Phase 5 — SaaS            (S12–S13bis): Abonnements, SuperAdmin, gestion personnel
+Phase 6 — Production      (S14)       : Sécurité finale, déploiement
 ```
 
 ---
@@ -515,24 +515,242 @@ vers le flux SaaS, paiement → renouvellement automatique. UI
 
 ---
 
-### ⬜ Sprint 13 — SuperAdmin & métriques plateforme
+### ✅ Sprint 13 — SuperAdmin & métriques plateforme
 **Objectif** : interface opérateur pour gérer tous les tenants et monitorer la plateforme.
 
 **Backend**
-- [ ] `SuperAdminController` — liste tenants, détail, suspendre, activer
-- [ ] `PlatformMetricsService` — MRR, churn, nouveaux tenants, erreurs
-- [ ] Firewall séparé + IP whitelist prod
+- [x] `Controller/SuperAdmin/SuperAdminController` — endpoints
+  `GET /superadmin/tenants` (pagination + filtres status/plan/
+  search), `GET /superadmin/tenants/{slug}` (détail +
+  subscription complète + 5 dernières SaasInvoices),
+  `POST /superadmin/tenants/{slug}/suspend` (body { reason? }),
+  `POST /superadmin/tenants/{slug}/reactivate`,
+  `GET /superadmin/metrics`. Protégé par `ROLE_SUPER_ADMIN` au
+  niveau classe.
+- [x] `Platform/Admin/Domain/Service/PlatformMetricsService` — MRR
+  (bcmath, division /12 préparée pour annual V2), comptages par
+  statut tenant, churn 30j (cancelled+suspended), newTenants 30j,
+  planDistribution (active+trial). Pas de cache, calcul live à
+  chaque requête.
+- [x] DTO `Platform/Admin/Application/DTO/PlatformMetrics` (final
+  readonly, `toArray()`).
+- [x] `AbonnementService` enrichi : variantes
+  `suspendForTenant(Tenant, ?reason)` /
+  `reactivateForTenant(Tenant)` — destinées au SuperAdmin,
+  travaillent sur le schema public sans nécessiter de
+  `TenantContext`. Idempotence : 422 `BusinessRuleException` si
+  déjà dans l'état cible.
+- [x] `Platform/Admin/Application/Command/CreateSuperAdminCommand`
+  (`stayos:superadmin:create`) — bootstrap d'un compte SuperAdmin
+  (table `public.users`). Génère un mot de passe fort 16
+  caractères si non fourni, garantit 1 caractère de chaque
+  catégorie.
+- [x] Fixture `DataFixtures/Platform/SuperAdminFixtures` — compte
+  dev `admin@stayos.sn` / `superadmin123`.
+- [x] Firewall `superadmin_login` + access_control public sur
+  `/superadmin/auth/login` (`security.yaml`).
+- [x] `TenantMiddleware::EXCLUDED_PREFIXES` enrichi avec
+  `/superadmin` — les routes admin sont hors du flux multi-tenant.
 
 **Frontend**
-- [ ] `TenantsListView.vue` — statuts, plans, dernière activité
-- [ ] `TenantDetailView.vue` — détail hôtel + actions admin
-- [ ] `PlatformMetricsView.vue` — MRR, churn, queue size, erreurs
+- [x] `services/superadmin.service.ts` — instance axios DÉDIÉE
+  (séparée de `api.service` staff) : pas de `X-Tenant-Slug`,
+  token distinct `superadmin_token`, redirect 401 vers
+  `/superadmin/login` avec garde anti-boucle.
+- [x] `stores/superadmin.store.ts` — Pinia setup, claims minimaux
+  (username, roles, exp), vérification d'expiration JWT côté
+  `isAuthenticated`.
+- [x] `types/superadmin.ts` — `TenantSummary`, `TenantDetail`,
+  `TenantSubscription`, `TenantInvoice`, `PlatformMetrics`,
+  `TenantsListResponse`, `SuperAdminJwtClaims`.
+- [x] `modules/superadmin/views/SuperAdminLoginView.vue` — card
+  de login distincte du staff (badge « Back-office plateforme »),
+  gestion 401 / 429, contrôle post-login que le compte a bien
+  `ROLE_SUPER_ADMIN`.
+- [x] `modules/superadmin/views/TenantsListView.vue` — stat cards
+  (totaux via `getMetrics` silencieux), filtres
+  status/plan/search avec debounce 300 ms, pagination
+  10/20/50/100, badges status avec dot couleur cohérents.
+- [x] `modules/superadmin/views/TenantDetailView.vue` — vue
+  3 colonnes (Infos / Abonnement / Actions), confirmation inline
+  suspend/reactivate (pattern `confirmingSkip` du Sprint 12),
+  gestion 422 `BUSINESS_RULE`, flash message auto-effacé après
+  4 s, refetch après action. Tableau des 5 dernières
+  `SaasInvoice`.
+- [x] `modules/superadmin/views/PlatformMetricsView.vue` — stat
+  cards MRR + comptages, graphique Chart.js (Bar) sur
+  `planDistribution`, lib réutilisée du Sprint 10 (pas de
+  nouvelle dépendance).
+- [x] Routes `/superadmin/login` + `/tenants` + `/tenants/:slug`
+  + `/metrics` avec `meta.layout = 'superadmin'` et
+  `meta.requiresSuperAdmin = true`. Guard isolé du staff (return
+  tôt dans `beforeEach`).
+- [x] `App.vue` — layout conditionnel SuperAdmin : header
+  horizontal sans sidebar staff, pas de connexion Mercure, pas
+  d'`EventSource`. Login plein écran. Le `watch` sur
+  `auth.isAuthenticated` sort tôt si layout SuperAdmin (pas de
+  connect/disconnect Mercure erroné).
+- [x] `vite.config.ts` — proxy `/superadmin` → nginx avec
+  `bypass` pour distinguer requêtes HTML (SPA fallback Vite)
+  des requêtes JSON (proxifiées vers le backend), évite la
+  collision routing Vue Router ↔ API sur le même préfixe.
 
 **Tests**
-- [ ] `SuperAdminTest` — token hôtel bloqué sur `/superadmin`
-- [ ] `SuperAdminTest` — suspension → tenant renvoie 402
+- [x] `tests/Functional/SuperAdmin/SuperAdminTest` — 8 tests
+  (42 assertions) :
+  - `testStaffUserCannotAccessSuperadmin` (401/403)
+  - `testSuperAdminCanLoginAndListTenants`
+  - `testSuperAdminCanFilterByStatus`
+  - `testSuperAdminCanSuspendTenant` (cohérence
+    tenant+subscription)
+  - `testSuspendedTenantReturns402` — test critique du
+    livrable, couplage Sprint 12 ↔ Sprint 13
+  - `testSuperAdminCanReactivateTenant`
+  - `testSuspendIsIdempotent` (422 `BUSINESS_RULE`)
+  - `testMetricsEndpointReturnsExpectedShape`
+- [x] `setUp` + `tearDown` restaurent Villa Collines `ACTIVE`
+  pour pas polluer les fixtures partagées.
+- [x] Suite globale : 189 tests verts (+ 8 `SuperAdminTest`
+  silencieusement skippés par défaut via `@group integration`
+  exclu — point au backlog).
 
-**Livrable** : back-office opérateur complet
+**Ajouts notables (Sprint 13)** — découvertes et décisions
+- [x] Découverte que l'archi SuperAdmin était **partiellement
+  préparée depuis le Sprint 2** : entité `User` dans
+  `public.users`, firewall `superadmin` + role hierarchy
+  `ROLE_SUPER_ADMIN: [ROLE_ADMIN]`, `JWTCreatedListener` qui
+  filtre déjà les non-`StaffUser`. Sprint 13 a juste « branché »
+  ce qui existait → périmètre 13a très ramassé.
+- [x] Choix d'architecture documenté : variantes
+  `suspendForTenant` / `reactivateForTenant` au lieu de
+  manipuler `TenantContext::set + clear`. Plus propre
+  conceptuellement (le SuperAdmin ne touche jamais aux schemas
+  `hotel_{uuid}`, uniquement `public.tenants` +
+  `public.subscriptions`).
+- [x] Incohérence vocabulaire identifiée : l'enum
+  `TenantStatus` utilise `CHURNED`, la string
+  `Subscription.status` utilise `cancelled`, le DTO
+  `PlatformMetrics` expose `cancelledTenantsCount` qui lit
+  `CHURNED`. Pas un bug mais une dette à aligner — notée au
+  backlog « Leçons d'architecture ».
+- [x] Bug pré-existant `APP_BACKEND_URL` absent en env test :
+  bloquait l'instanciation de `SaasInvoiceService` (injecté via
+  `AbonnementService`) dans tout test fonctionnel — invisible
+  jusque-là car les tests Sprint 12 étaient déjà `@group
+  integration` exclus. Ajouté à `.env.test` +
+  `phpunit.xml.dist`.
+- [x] Découverte au moment d'utiliser le SuperAdmin : périmètre
+  MVP livré (visualiser + suspend/reactivate + métriques)
+  **insuffisant pour un vrai opérateur SaaS**. Manques
+  identifiés et formalisés dans le Sprint 13bis dédié.
+
+**Livrable** : back-office plateforme MVP opérationnel. Un
+SuperAdmin peut se connecter via une UI dédiée (sidebar masquée,
+pas de Mercure), lister/filtrer/consulter les tenants, suspendre
+manuellement (en plus de la suspension auto du scheduler Sprint
+12) et réactiver, voir les métriques plateforme. Couplage Sprint
+12 ↔ Sprint 13 prouvé : la suspension SuperAdmin redirige bien
+le manager du tenant suspendu vers `/account-suspended`.
+
+---
+
+### ⬜ Sprint 13bis — Complétion SuperAdmin & gestion personnel
+**Objectif** : combler les manques production-ready côté
+back-office SuperAdmin ET livrer la gestion du personnel hôtel
+(manager invite / édite / désactive ses employés).
+
+⚠️ Deux périmètres distincts dans le même sprint car ils sont
+prérequis communs au go-live :
+- Gestion personnel : pour le MANAGER de chaque hôtel (ses
+  réceptionnistes, comptables, femmes de chambre). Sans ça, un
+  client en prod n'a aucun moyen d'inviter son équipe.
+- Complétion SuperAdmin : pour les opérateurs StayOS (créer un
+  tenant manuellement, éditer ses paramètres, observer
+  l'historique).
+
+**Backend — Gestion du personnel (côté tenant)**
+- [ ] Compléter `StaffController` (aujourd'hui read-only) :
+  `POST` création, `PUT` édition, `DELETE` soft désactivation
+  (`StaffUser.active = false` plutôt que delete physique).
+  RBAC : MANAGER uniquement.
+- [ ] Entité `StaffInvitation` (table dans schema tenant) +
+  enum `InvitationStatus` (`PENDING` / `ACCEPTED` / `EXPIRED`).
+- [ ] `StaffInvitationService` : générer un token unique signé
+  (HS256 avec `APP_SECRET`, durée 7 j), envoyer email Mailjet
+  avec lien de finalisation, accepter (création du `StaffUser`
+  réel avec password choisi par l'invité).
+- [ ] `StaffInvitationController` :
+  - `POST /api/staff/invitations` — émettre une invitation
+    (RBAC MANAGER) + check
+    `SubscriptionLimitChecker::assertCanAddUser()` (cf. backlog
+    « Contrôle d'abonnement »).
+  - `GET /api/staff/invitations/{token}` — public, récupère
+    les infos publiques de l'invitation (email, rôle proposé,
+    hôtel).
+  - `POST /api/staff/invitations/{token}/accept` — public,
+    body `{ password }`, crée le `StaffUser` dans le schema
+    tenant, marque l'invitation `ACCEPTED`.
+- [ ] `EmailService::sendStaffInvitation()` — template Twig
+  avec lien `https://{tenant}.stayos.sn/invitation/{token}`.
+
+**Backend — Complétion SuperAdmin**
+- [ ] `POST /superadmin/tenants` — création manuelle d'un
+  tenant par le SuperAdmin (réutilise
+  `OnboardingService::provision()` MAIS bypass OTP : le
+  SuperAdmin a déjà vérifié l'identité). Body : `hotel_name`,
+  `slug`, `manager_email`, `manager_name`, `plan` (STARTER par
+  défaut). Génère un mot de passe temporaire pour le manager,
+  l'envoie par email avec instruction de le changer au premier
+  login.
+- [ ] `PATCH /superadmin/tenants/{slug}` — édition limitée des
+  paramètres tenant : `name`, `timezone`, `country`, `currency`,
+  `settings` (JSON). PAS de modification du `schema_name` ou
+  de l'id.
+- [ ] `POST /superadmin/tenants/{slug}/subscription` — forcer
+  un changement de plan / dates de subscription (geste
+  commercial). Body : `plan_id`, `current_period_end?`,
+  `reason` (audit). Crée une entrée `AuditLog` dédiée.
+- [ ] `GET /superadmin/audit` — log des actions SuperAdmin
+  des 30 derniers jours (lecture seule). Stockage dans une
+  nouvelle table `public.superadmin_audit_log`.
+- [ ] `Platform/Admin/Domain/Service/SuperAdminAuditService` +
+  entité `SuperAdminAuditLog` (qui, quand, sur quel tenant,
+  action, payload, IP).
+
+**Frontend**
+- [ ] Module **Personnel** (manager-only) :
+  - `modules/staff/views/StaffListView.vue` — liste des
+    employés actifs + invitations en attente. Filtres par
+    rôle, bouton « Inviter un employé ».
+  - `modules/staff/components/InviteStaffModal.vue` —
+    formulaire email + rôle à attribuer + bouton envoyer.
+  - `modules/staff/views/StaffDetailView.vue` — édition
+    rôle, désactivation, réactivation.
+  - `modules/staff/views/AcceptInvitationView.vue` — page
+    publique, formulaire de création du compte (password +
+    confirm), redirection vers login après.
+  - `MODULE_ACCESS.staff = ['MANAGER']` dans `auth.store` +
+    entrée sidebar « Personnel » (`ti-users-group`).
+- [ ] Module **SuperAdmin** étendu :
+  - `modules/superadmin/views/CreateTenantView.vue` —
+    formulaire création tenant.
+  - `modules/superadmin/views/EditTenantView.vue` (ou dans
+    `TenantDetailView` en mode édition) — édition des
+    paramètres.
+  - `modules/superadmin/views/SuperAdminAuditView.vue` —
+    journal d'audit.
+
+**Tests**
+- [ ] `StaffInvitationServiceTest` — émission, validation
+  token, expiration, double accept, isolation tenant.
+- [ ] `StaffControllerTest` étendu — CRUD complet RBAC.
+- [ ] `SuperAdminTest` étendu — création tenant, édition
+  paramètres, audit log.
+
+**Livrable** : un manager hôtel peut inviter son équipe par
+email, gérer les rôles, désactiver. Un SuperAdmin peut créer un
+tenant manuellement, éditer ses paramètres, et voir l'historique
+des actions admin. Production-ready côté gestion.
 
 ---
 
@@ -565,8 +783,9 @@ vers le flux SaaS, paiement → renouvellement automatique. UI
 | Opérations | S8–S9 | 2 semaines | Housekeeping + revenue management |
 | Intelligence | S10–S11 | 2 semaines | Dashboard + temps réel |
 | SaaS | S12–S13 | 2 semaines | Monétisation + supervision |
+| SaaS (suite) | S13bis | 1 semaine | Complétion opérationnelle (personnel + back-office) |
 | Production | S14 | 1 semaine | Déploiement + sécurité finale |
-| **Total** | **14 sprints** | **~14 semaines** | **App production-ready** |
+| **Total** | **15 sprints** | **~15 semaines** | **App production-ready** |
 
 ---
 
@@ -596,12 +815,9 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
 - ~~**UI d'assignation des tâches de ménage**~~ : livré au Sprint 11
   (bouton « Assigner »/« Réassigner » dans `TaskCard.vue`, popover
   avec `<select>` lazy-loaded depuis `/api/staff`).
-- **Module de gestion du personnel (vraie RH)** : ajout / édition /
-  désactivation de membres, gestion des rôles, invitations email, gestion
-  d'un éventuel multi-rôle. L'endpoint `/api/staff` actuel est read-only
-  minimal — il faudra le compléter (POST/PUT/DELETE) et concevoir l'UI
-  dédiée. À planifier selon priorité produit (Sprint 12 ou 13 selon
-  besoins).
+- ~~**Module de gestion du personnel (vraie RH)**~~ : intégré au
+  **Sprint 13bis** (gestion complète des `StaffUser`,
+  invitations email, RBAC, désactivation).
 - **Stratégie d'assignation à définir (réflexion produit)** : assigner
   manuellement tâche par tâche (livré) ? par zone/étage attribué à
   chaque agent ? automatiquement à la génération des tâches ? La V1
@@ -777,6 +993,22 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   tout doit être résolu via `%env(VAR)%` avec un défaut explicite
   si besoin. Sinon les variables d'env ne servent à rien et la
   prod utilisera des valeurs de dev.
+- **Tests `@group integration` silencieusement skippés
+  (Sprint 13)** : les 8 tests `SuperAdminTest` sont marqués
+  `@group integration` parce qu'ils dépendent des fixtures, et
+  `phpunit.xml.dist` exclut ce groupe par défaut. Donc
+  `make test` retourne « 189 tests verts » sans les exécuter,
+  masquant des régressions potentielles. Trois options à
+  arbitrer :
+  (A) retirer l'annotation `@group integration` (les tests
+  SuperAdmin tournent en ~4 s, acceptable) ;
+  (B) garder l'annotation et ajouter une cible Makefile
+  `make test-integration` qui force `--group integration`,
+  intégrée à un `make test-all` ;
+  (C) revoir tous les tests `@group integration` du projet pour
+  décider lesquels doivent vraiment être exclus par défaut.
+  À traiter au Sprint 14 (production-ready) en même temps que la
+  CI.
 
 #### Deprecations PHP/Symfony (priorité basse)
 - **`StaffUser::eraseCredentials()`** à annoter `#[\Deprecated]` —
@@ -858,3 +1090,21 @@ ce ne sont pas des tickets mais des réflexes à appliquer.
   non transactionnel pour produire `SAAS-YYYY-NNNNN`. Probabilité
   quasi nulle avec un scheduler/jour. À durcir si on déploie
   plusieurs workers en parallèle (verrou ou séquence Postgres).
+- **Vocabulaire enum cohérent dès le départ** : `TenantStatus`
+  utilise `CHURNED`, `Subscription.status` utilise `cancelled`,
+  et le DTO `PlatformMetrics` expose `cancelledTenantsCount` qui
+  lit `CHURNED`. Incohérence qui force le frontend à mapper
+  manuellement. Réflexe à prendre : quand deux concepts désignent
+  la même réalité métier, choisir UN seul terme et l'imposer
+  partout (enum, string DB, DTO, type front). À aligner au
+  Sprint 14.
+- **Préparation d'archi vs livraison effective** : le Sprint 13
+  a découvert que l'archi SuperAdmin était préparée depuis le
+  Sprint 2 (entité `User`, firewall, rôle dans la hiérarchie)
+  mais jamais « branchée ». Idéal pour réduire la dette
+  technique d'un coup, mais peut aussi créer de la confusion (du
+  code mort qui ne sert à rien pendant N sprints). Réflexe à
+  appliquer : documenter explicitement dans le code les
+  composants « préparés pour un futur sprint » avec un
+  commentaire pointant vers le sprint cible, pour qu'on retrouve
+  facilement.

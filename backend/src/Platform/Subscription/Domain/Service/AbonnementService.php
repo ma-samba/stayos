@@ -187,6 +187,63 @@ class AbonnementService
     }
 
     /**
+     * Variante de suspend() destinée au SuperAdmin : suspend à la fois
+     * le tenant et son abonnement actif, et journalise la raison.
+     *
+     * Renvoie une BusinessRuleException si le tenant est déjà suspendu
+     * (idempotence côté API → 422).
+     */
+    public function suspendForTenant(Tenant $tenant, ?string $reason = null): void
+    {
+        if ($tenant->getStatus() === TenantStatus::SUSPENDED->value) {
+            throw new BusinessRuleException('Ce tenant est déjà suspendu.');
+        }
+
+        $tenant->setStatus(TenantStatus::SUSPENDED);
+
+        $subscription = $this->subscriptionRepository->findActiveByTenant($tenant);
+        if ($subscription !== null) {
+            $subscription->setStatus('suspended');
+        }
+
+        $this->entityManager->flush();
+
+        $this->logger->warning('tenant.suspended_by_admin', [
+            'tenant' => $tenant->getSlug(),
+            'reason' => $reason,
+        ]);
+    }
+
+    /**
+     * Variante de reactivate() destinée au SuperAdmin : remet tenant
+     * et abonnement en 'active'. Renvoie BusinessRuleException si le
+     * tenant n'est pas suspendu.
+     *
+     * Une subscription `cancelled` reste cancelled — il faudra un
+     * upgrade pour repartir. Une subscription `suspended` est remise
+     * en `active`.
+     */
+    public function reactivateForTenant(Tenant $tenant): void
+    {
+        if ($tenant->getStatus() !== TenantStatus::SUSPENDED->value) {
+            throw new BusinessRuleException('Ce tenant n\'est pas suspendu.');
+        }
+
+        $tenant->setStatus(TenantStatus::ACTIVE);
+
+        $subscription = $this->subscriptionRepository->findByTenant($tenant);
+        if ($subscription !== null && $subscription->getStatus() === 'suspended') {
+            $subscription->setStatus('active');
+        }
+
+        $this->entityManager->flush();
+
+        $this->logger->info('tenant.reactivated_by_admin', [
+            'tenant' => $tenant->getSlug(),
+        ]);
+    }
+
+    /**
      * Scanner quotidien — appelé par le scheduler.
      *
      * Pour chaque subscription active OU trial :
