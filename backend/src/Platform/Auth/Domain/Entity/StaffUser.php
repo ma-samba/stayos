@@ -42,21 +42,27 @@ class StaffUser implements UserInterface, PasswordAuthenticatedUserInterface
     private string $lastName;
 
     #[ORM\Column(length: 20, options: ['default' => 'RECEPTIONIST'])]
+    #[Groups(['staff:read'])]
     private string $role = 'RECEPTIONIST';
 
     #[ORM\Column(length: 20, nullable: true)]
+    #[Groups(['staff:read'])]
     private ?string $phone = null;
 
     #[ORM\Column(options: ['default' => true])]
+    #[Groups(['staff:read'])]
     private bool $active = true;
 
     #[ORM\Column(length: 5, options: ['default' => 'fr'])]
+    #[Groups(['staff:read'])]
     private string $locale = 'fr';
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['staff:read'])]
     private ?\DateTimeImmutable $lastLoginAt = null;
 
     #[ORM\Column]
+    #[Groups(['staff:read'])]
     private \DateTimeImmutable $createdAt;
 
     #[ORM\Column]

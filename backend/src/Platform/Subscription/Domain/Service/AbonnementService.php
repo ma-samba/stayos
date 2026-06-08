@@ -50,6 +50,103 @@ class AbonnementService
     ) {}
 
     /**
+     * Crée une subscription `active` avec période courante de 30
+     * jours. Destinée au SuperAdmin qui provisionne un client
+     * déjà facturé hors plateforme (Sprint 13bis-B).
+     *
+     * Pas de prorata, pas de facture SaaS générée : c'est un
+     * geste commercial, l'opérateur facture en off.
+     */
+    public function createActive(Tenant $tenant, Plan $plan): Subscription
+    {
+        if ($this->subscriptionRepository->findActiveByTenant($tenant) !== null) {
+            throw new BusinessRuleException(
+                "Ce tenant a déjà un abonnement actif.",
+            );
+        }
+
+        $tz  = new \DateTimeZone('Africa/Dakar');
+        $now = new \DateTimeImmutable('now', $tz);
+
+        $sub = new Subscription();
+        $sub->setTenant($tenant);
+        $sub->setPlan($plan);
+        $sub->setStatus('active');
+        $sub->setCurrentPeriodStart($now);
+        $sub->setCurrentPeriodEnd($now->modify('+30 days'));
+
+        $this->entityManager->persist($sub);
+        $this->entityManager->flush();
+
+        $this->logger->info('subscription.created_active_by_admin', [
+            'tenant' => $tenant->getSlug(),
+            'plan'   => $plan->getName(),
+        ]);
+
+        return $sub;
+    }
+
+    /**
+     * Force un changement de plan + optionnellement la date de fin
+     * de période courante (geste commercial : remise, grand compte).
+     * Sprint 13bis-B.
+     *
+     * Le tenant doit déjà avoir une subscription. Aucune facture
+     * n'est émise (l'opérateur facture en off).
+     *
+     * L'audit (avec `reason`) est posé côté controller — ce service
+     * reste neutre.
+     */
+    public function forcePlan(
+        Tenant             $tenant,
+        Plan               $newPlan,
+        ?\DateTimeImmutable $newPeriodEnd = null,
+    ): Subscription {
+        $sub = $this->subscriptionRepository->findByTenant($tenant);
+
+        if ($sub === null) {
+            throw new BusinessRuleException(
+                "Ce tenant n'a aucun abonnement à modifier.",
+            );
+        }
+
+        $previousPlan = $sub->getPlan()->getName();
+        $sub->setPlan($newPlan);
+
+        if ($newPeriodEnd !== null) {
+            $sub->setCurrentPeriodEnd($newPeriodEnd);
+        }
+
+        // Force le statut actif (utile si le tenant était suspendu /
+        // expiré : un geste commercial implique un débloquage immédiat).
+        $sub->setStatus('active');
+        if ($sub->getCurrentPeriodStart() === null) {
+            $sub->setCurrentPeriodStart(
+                new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar'))
+            );
+        }
+
+        // Reset l'anti-spam de relance : on repart à neuf
+        $sub->setLastNotificationType(null);
+        $sub->setLastNotificationSentAt(null);
+
+        // Si le tenant était suspendu, le réactiver
+        if ($tenant->getStatus() === TenantStatus::SUSPENDED->value) {
+            $tenant->setStatus(TenantStatus::ACTIVE);
+        }
+
+        $this->entityManager->flush();
+
+        $this->logger->warning('subscription.force_plan_by_admin', [
+            'tenant' => $tenant->getSlug(),
+            'from'   => $previousPlan,
+            'to'     => $newPlan->getName(),
+        ]);
+
+        return $sub;
+    }
+
+    /**
      * Crée un trial qui expire dans N jours. Appelée par l'onboarding.
      */
     public function createTrial(Tenant $tenant, Plan $plan, int $trialDays = self::TRIAL_DURATION_DAYS): Subscription

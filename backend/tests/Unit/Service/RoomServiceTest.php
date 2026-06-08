@@ -2,6 +2,7 @@
 
 namespace App\Tests\Unit\Service;
 
+use App\Hotel\Reservation\Infrastructure\Repository\ReservationRepository;
 use App\Hotel\Room\Domain\Entity\Room;
 use App\Hotel\Room\Domain\Enum\RoomStatus;
 use App\Hotel\Room\Domain\Service\RoomService;
@@ -10,6 +11,7 @@ use App\Hotel\Room\Infrastructure\Repository\RoomRepository;
 use App\Hotel\Room\Infrastructure\Repository\RoomTypeRepository;
 use App\Hotel\Shared\Domain\Service\AuditService;
 use App\Platform\Auth\Domain\Entity\StaffUser;
+use App\Platform\Subscription\Domain\Service\SubscriptionLimitChecker;
 use App\Shared\Mercure\MercurePublisher;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -44,6 +46,8 @@ class RoomServiceTest extends TestCase
             $this->roomRepository,
             $this->createMock(RoomTypeRepository::class),
             $this->createMock(FloorRepository::class),
+            $this->createMock(ReservationRepository::class),
+            $this->createMock(SubscriptionLimitChecker::class),
             $this->entityManager,
             $this->auditService,
             $this->mercurePublisher,

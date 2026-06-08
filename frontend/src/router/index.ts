@@ -120,6 +120,36 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Compte suspendu', hideSidebar: true },
   },
 
+  // ── Configuration de l'hôtel (manager only) ── Sprint 13ter
+  {
+    path: '/configuration',
+    name: 'configuration',
+    component: () => import('@/modules/property/views/HotelConfigurationView.vue'),
+    meta: { requiresAuth: true, title: 'Configuration', module: 'configuration' },
+  },
+
+  // ── Personnel (manager only) ──
+  {
+    path: '/staff',
+    name: 'staff',
+    component: () => import('@/modules/staff/views/StaffListView.vue'),
+    meta: { requiresAuth: true, title: 'Personnel', module: 'staff' },
+  },
+  {
+    path: '/staff/:id',
+    name: 'staff-detail',
+    component: () => import('@/modules/staff/views/StaffDetailView.vue'),
+    meta: { requiresAuth: true, title: 'Détail employé', module: 'staff' },
+  },
+
+  // ── Acceptation d'invitation employé (public, plein écran) ──
+  {
+    path: '/invitation/:token',
+    name: 'accept-invitation',
+    component: () => import('@/modules/staff/views/AcceptInvitationView.vue'),
+    meta: { requiresAuth: false, title: 'Activer mon compte', hideSidebar: true },
+  },
+
   // ── SuperAdmin (back-office plateforme) ──
   {
     path: '/superadmin',
@@ -138,6 +168,12 @@ const routes: RouteRecordRaw[] = [
     meta: { layout: 'superadmin', requiresSuperAdmin: true, title: 'Tenants' },
   },
   {
+    path: '/superadmin/tenants/new',
+    name: 'superadmin-tenant-new',
+    component: () => import('@/modules/superadmin/views/CreateTenantView.vue'),
+    meta: { layout: 'superadmin', requiresSuperAdmin: true, title: 'Nouveau tenant' },
+  },
+  {
     path: '/superadmin/tenants/:slug',
     name: 'superadmin-tenant-detail',
     component: () => import('@/modules/superadmin/views/TenantDetailView.vue'),
@@ -148,6 +184,12 @@ const routes: RouteRecordRaw[] = [
     name: 'superadmin-metrics',
     component: () => import('@/modules/superadmin/views/PlatformMetricsView.vue'),
     meta: { layout: 'superadmin', requiresSuperAdmin: true, title: 'Métriques plateforme' },
+  },
+  {
+    path: '/superadmin/audit',
+    name: 'superadmin-audit',
+    component: () => import('@/modules/superadmin/views/SuperAdminAuditView.vue'),
+    meta: { layout: 'superadmin', requiresSuperAdmin: true, title: 'Audit SuperAdmin' },
   },
 ]
 

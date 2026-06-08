@@ -5,20 +5,20 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **Sprint 13bis — Complétion SuperAdmin & gestion personnel**
-- Dernière mise à jour : 7 juin 2026
-- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+- Sprint courant : **Sprint 14 — Production-ready (sécurité, déploiement, monitoring)**
+- Dernière mise à jour : 9 juin 2026
+- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 13bis, 13ter
 
 ---
 
-## Vue d'ensemble — 15 sprints (~15 semaines)
+## Vue d'ensemble — 16 sprints (~16 semaines)
 
 ```
 Phase 1 — Fondations      (S1–S3)     : Infrastructure, Auth, BDD
 Phase 2 — Core métier     (S4–S7)     : Chambres, Réservations, Clients, Facturation
 Phase 3 — Opérations      (S8–S9)     : Housekeeping, Tarifs
 Phase 4 — Intelligence    (S10–S11)   : Dashboard, Temps réel
-Phase 5 — SaaS            (S12–S13bis): Abonnements, SuperAdmin, gestion personnel
+Phase 5 — SaaS            (S12–S13ter): Abonnements, SuperAdmin, gestion personnel, config hôtel
 Phase 6 — Production      (S14)       : Sécurité finale, déploiement
 ```
 
@@ -654,103 +654,433 @@ le manager du tenant suspendu vers `/account-suspended`.
 
 ---
 
-### ⬜ Sprint 13bis — Complétion SuperAdmin & gestion personnel
+### ✅ Sprint 13bis — Complétion SuperAdmin & gestion personnel
 **Objectif** : combler les manques production-ready côté
 back-office SuperAdmin ET livrer la gestion du personnel hôtel
 (manager invite / édite / désactive ses employés).
 
-⚠️ Deux périmètres distincts dans le même sprint car ils sont
-prérequis communs au go-live :
-- Gestion personnel : pour le MANAGER de chaque hôtel (ses
-  réceptionnistes, comptables, femmes de chambre). Sans ça, un
-  client en prod n'a aucun moyen d'inviter son équipe.
-- Complétion SuperAdmin : pour les opérateurs StayOS (créer un
-  tenant manuellement, éditer ses paramètres, observer
-  l'historique).
+⚠️ Sprint livré en 3 étapes itératives — la structure ci-dessous
+reflète cette réalité, utile pour relire l'historique :
+1. **13bis-A** : gestion personnel + `SubscriptionLimitChecker`.
+2. **Correctifs 13bis-A** : audit log staff, `lastLoginAt`,
+   journal d'activité par employé.
+3. **13bis-B** : complétion SuperAdmin (création tenant manuelle,
+   édition, `forcePlan`, audit log dédié).
 
-**Backend — Gestion du personnel (côté tenant)**
-- [ ] Compléter `StaffController` (aujourd'hui read-only) :
-  `POST` création, `PUT` édition, `DELETE` soft désactivation
-  (`StaffUser.active = false` plutôt que delete physique).
-  RBAC : MANAGER uniquement.
-- [ ] Entité `StaffInvitation` (table dans schema tenant) +
-  enum `InvitationStatus` (`PENDING` / `ACCEPTED` / `EXPIRED`).
-- [ ] `StaffInvitationService` : générer un token unique signé
-  (HS256 avec `APP_SECRET`, durée 7 j), envoyer email Mailjet
-  avec lien de finalisation, accepter (création du `StaffUser`
-  réel avec password choisi par l'invité).
-- [ ] `StaffInvitationController` :
-  - `POST /api/staff/invitations` — émettre une invitation
-    (RBAC MANAGER) + check
-    `SubscriptionLimitChecker::assertCanAddUser()` (cf. backlog
-    « Contrôle d'abonnement »).
-  - `GET /api/staff/invitations/{token}` — public, récupère
-    les infos publiques de l'invitation (email, rôle proposé,
-    hôtel).
-  - `POST /api/staff/invitations/{token}/accept` — public,
-    body `{ password }`, crée le `StaffUser` dans le schema
-    tenant, marque l'invitation `ACCEPTED`.
-- [ ] `EmailService::sendStaffInvitation()` — template Twig
-  avec lien `https://{tenant}.stayos.sn/invitation/{token}`.
+**Backend — Gestion personnel (côté tenant) [13bis-A]**
+- [x] Entité `StaffInvitation` + enum `InvitationStatus`
+  (PENDING / ACCEPTED / EXPIRED / REVOKED). Table tenant avec
+  index unique (email, status PENDING) et index sur tokenHash.
+- [x] Migration tenant `Version20260607000000AddStaffInvitations`
+  enregistrée dans `TenantMigrationRegistry`.
+- [x] `StaffInvitationService` — token clair `random_bytes(32)`
+  + bin2hex (64 chars, 256 bits d'entropie), hash SHA-256 stocké
+  en BDD. Méthodes invite / getByToken / accept / revoke avec
+  marquage défensif EXPIRED dans `getByToken`.
+- [x] `SubscriptionLimitChecker::assertCanAddUser()` — compte
+  actifs + pending invitations, message d'erreur explicite avec
+  nom du plan et limite chiffrée. Plan ENTERPRISE (null) bypass.
+- [x] `StaffController` étendu : POST création directe (avec
+  password temporaire 16 chars retourné UNE FOIS), PUT édition
+  (email gelé), POST reset-password, DELETE soft (active=false,
+  self-deactivation refusée 422), POST reactivate (avec re-check
+  limite plan).
+- [x] `StaffInvitationController` (manager) : POST invite,
+  GET list, POST revoke.
+- [x] `StaffInvitationPublicController` (firewall séparé) :
+  GET infos publiques par token, POST accept avec password
+  choisi. Le tenant est résolu via `X-Tenant-Slug` header.
+- [x] Firewall `public_invitations` dans `security.yaml`
+  (pattern `^/public/invitations`, `security: false`),
+  positionné avant le firewall `api`.
+- [x] `EmailService::sendStaffInvitation()` + template Twig.
+- [x] `Shared/Url/TenantUrlBuilder` — helper partagé
+  (factorisation amorcée, à terminer au Sprint 14).
 
-**Backend — Complétion SuperAdmin**
-- [ ] `POST /superadmin/tenants` — création manuelle d'un
-  tenant par le SuperAdmin (réutilise
-  `OnboardingService::provision()` MAIS bypass OTP : le
-  SuperAdmin a déjà vérifié l'identité). Body : `hotel_name`,
-  `slug`, `manager_email`, `manager_name`, `plan` (STARTER par
-  défaut). Génère un mot de passe temporaire pour le manager,
-  l'envoie par email avec instruction de le changer au premier
-  login.
-- [ ] `PATCH /superadmin/tenants/{slug}` — édition limitée des
-  paramètres tenant : `name`, `timezone`, `country`, `currency`,
-  `settings` (JSON). PAS de modification du `schema_name` ou
-  de l'id.
-- [ ] `POST /superadmin/tenants/{slug}/subscription` — forcer
-  un changement de plan / dates de subscription (geste
-  commercial). Body : `plan_id`, `current_period_end?`,
-  `reason` (audit). Crée une entrée `AuditLog` dédiée.
-- [ ] `GET /superadmin/audit` — log des actions SuperAdmin
-  des 30 derniers jours (lecture seule). Stockage dans une
-  nouvelle table `public.superadmin_audit_log`.
-- [ ] `Platform/Admin/Domain/Service/SuperAdminAuditService` +
-  entité `SuperAdminAuditLog` (qui, quand, sur quel tenant,
-  action, payload, IP).
+**Backend — Complétion SuperAdmin [13bis-B]**
+- [x] Migration global
+  `Version20260607100000CreateSuperAdminAuditLog` — table
+  `public.superadmin_audit_log` avec 3 indexes (tenant_slug,
+  actor_email, created_at DESC).
+- [x] Entité `SuperAdminAuditLog` + repository avec `paginate()`.
+- [x] `SuperAdminAuditService::log(actor, tenant?, action,
+  payload?, request?)` — capture automatique IP/UA depuis la
+  Request.
+- [x] `OnboardingService::provision(data, initialStatus)` —
+  variante sans OTP de `register()`, retourne `{tenant, password}`
+  avec password temporaire 16 chars. Choix `'trial'` ou `'active'`
+  comme statut initial. Pattern try/finally identique à `register`
+  pour `SET search_path`.
+- [x] `AbonnementService::createActive(Tenant, Plan)` — crée
+  subscription active +30j, refuse si déjà active.
+- [x] `AbonnementService::forcePlan(Tenant, Plan, ?newPeriodEnd)`
+  — change plan + dates, reset notifications, **débloque les
+  tenants suspendus** (sémantique alignée avec
+  `renewAfterPayment` après IPN Paydunya).
+- [x] `SuperAdminController` étendu : POST /tenants (création),
+  PATCH /tenants/{slug} (édition limitée à
+  name/timezone/country/currency, slug et subdomain figés),
+  POST /tenants/{slug}/force-plan (reason 5 chars min
+  obligatoire), GET /audit (paginé, filtres
+  actor/tenant/action).
+- [x] **Audit rétroactif** : `suspendTenant` et
+  `reactivateTenant` du Sprint 13 écrivent désormais dans le
+  nouvel audit log en plus du logger Monolog existant.
 
-**Frontend**
-- [ ] Module **Personnel** (manager-only) :
-  - `modules/staff/views/StaffListView.vue` — liste des
-    employés actifs + invitations en attente. Filtres par
-    rôle, bouton « Inviter un employé ».
-  - `modules/staff/components/InviteStaffModal.vue` —
-    formulaire email + rôle à attribuer + bouton envoyer.
-  - `modules/staff/views/StaffDetailView.vue` — édition
-    rôle, désactivation, réactivation.
-  - `modules/staff/views/AcceptInvitationView.vue` — page
-    publique, formulaire de création du compte (password +
-    confirm), redirection vers login après.
-  - `MODULE_ACCESS.staff = ['MANAGER']` dans `auth.store` +
-    entrée sidebar « Personnel » (`ti-users-group`).
-- [ ] Module **SuperAdmin** étendu :
-  - `modules/superadmin/views/CreateTenantView.vue` —
-    formulaire création tenant.
-  - `modules/superadmin/views/EditTenantView.vue` (ou dans
-    `TenantDetailView` en mode édition) — édition des
-    paramètres.
-  - `modules/superadmin/views/SuperAdminAuditView.vue` —
-    journal d'audit.
+**Backend — Correctifs intercalés**
+- [x] `AuthenticationSuccessListener` sur événement Lexik JWT
+  `on_authentication_success` — met à jour `lastLoginAt` après
+  chaque login réussi. Filtre `instanceof StaffUser` (le
+  SuperAdmin a son propre champ dans `public.users`).
+  ⚠️ Manque pré-existant depuis Sprint 2, révélé maintenant.
+- [x] `AuditService` injecté dans `StaffController` et
+  `StaffInvitationService` — toutes les actions sensibles staff
+  écrivent désormais dans la table tenant `audit_logs` :
+  `staff_user.created`, `.updated`, `.password_reset`,
+  `.deactivated`, `.reactivated`, `staff_invitation.created`,
+  `.revoked`, `staff_user.created_via_invitation`.
+- [x] `AuditLogRepository::findByEntity()` et
+  `findByStaffUser()` (filtre par email = champ stable face aux
+  désactivations). Tri secondaire `id DESC` (UUID v7) pour
+  trancher les égalités sur `created_at` (TIMESTAMP(0)).
+- [x] Endpoints `GET /api/staff/{id}/audit` (historique sur ce
+  profil, 50 entrées max) et `GET /api/staff/{id}/activity`
+  (actions FAITES par cet employé, 100 entrées max).
+- [x] **Refactor `TempPasswordGenerator`** — service partagé
+  dans `Shared/Security/`. Suppression de 3 implémentations
+  privées dupliquées (`StaffController`, `OnboardingService`,
+  `CreateSuperAdminCommand`). Plus de dette sur ce point.
+
+**Frontend [13bis-A]**
+- [x] Module `staff/` : `MODULE_ACCESS=['MANAGER']`, entrée
+  sidebar « Personnel » (`ti-users-group`).
+- [x] `services/staff.service.ts` — instance authentifiée +
+  instance publique séparée pour les routes
+  `/public/invitations`.
+- [x] `modules/staff/views/StaffListView.vue` — stats X/Y
+  utilisateurs avec warning >=80%, filtres, tableau membres
+  actifs/désactivés + invitations.
+- [x] `modules/staff/components/InviteStaffModal.vue` +
+  `CreateStaffModal.vue` (modal d'affichage password temporaire
+  one-shot avec bouton Copier).
+- [x] `modules/staff/views/StaffDetailView.vue` — édition,
+  reset password (one-shot), désactivation/réactivation avec
+  confirmation inline.
+- [x] `modules/staff/views/AcceptInvitationView.vue` — page
+  publique plein écran, validation password 8 chars +
+  confirmation, redirect login après accept.
+
+**Frontend [13bis-B + correctifs]**
+- [x] `modules/superadmin/views/CreateTenantView.vue` —
+  formulaire 2 sections (hôtel/manager), normalisation slug
+  live (NFD + accents + non-alphanum → tirets), radio
+  Essai/Actif avec warning visible sur le mode actif, modal
+  résultat avec password copiable + redirect.
+- [x] `modules/superadmin/views/SuperAdminAuditView.vue` —
+  filtres actor/tenant/action avec debounce 300 ms, tableau
+  cliquable (expand inline pour payload JSON + UA complet),
+  pagination 20/50/100, mapping FR des actions.
+- [x] `modules/superadmin/views/TenantDetailView.vue` étendu :
+  bouton « Modifier » avec mode édition inline
+  (name/timezone/country/currency), hint slug figé, section
+  collapsible « Forcer un plan » avec reason 5 chars min.
+- [x] `modules/superadmin/views/TenantsListView.vue` — bouton
+  « + Nouveau tenant ».
+- [x] Nav SuperAdmin : ajout entrée « Audit » + routes
+  `/superadmin/tenants/new` et `/superadmin/audit`.
+- [x] `modules/staff/views/StaffDetailView.vue` étendu :
+  système à deux onglets « Activité » (par défaut) /
+  « Historique du compte », mapping FR enrichi (22 actions
+  staff / reservation / guest / room / housekeeping / billing),
+  dots colorés par catégorie sémantique, chargement parallèle
+  au mount via `Promise.all`.
 
 **Tests**
-- [ ] `StaffInvitationServiceTest` — émission, validation
-  token, expiration, double accept, isolation tenant.
-- [ ] `StaffControllerTest` étendu — CRUD complet RBAC.
-- [ ] `SuperAdminTest` étendu — création tenant, édition
-  paramètres, audit log.
+- [x] `tests/Unit/Service/SubscriptionLimitCheckerTest` —
+  4 tests (limit reached / enterprise unlimited / below
+  limit / no subscription).
+- [x] `tests/Functional/Api/Staff/StaffInvitationTest` —
+  12 tests (RBAC, conflits, public GET/accept, expiration,
+  double-accept, limite plan, audit assertions sur invite /
+  accept sans acteur / revoke).
+- [x] `tests/Functional/Api/Staff/StaffCrudTest` — 18 tests
+  CRUD + audit (`testCreateLogsAudit`,
+  `testUpdateLogsAuditWithBeforeAfter`,
+  `testUpdateNoChangesSkipsAudit`,
+  `testResetPasswordLogsAuditWithoutLeakingSecrets`,
+  `testActivityEndpointReturnsActionsDoneByStaff`,
+  `testActivityEndpointDoesNotReturnOtherStaffActions`).
+- [x] `tests/Functional/Api/Auth/LoginUpdatesLastLoginAtTest`
+  — 2 tests (login OK met à jour, login échoué ne touche pas).
+- [x] `tests/Functional/SuperAdmin/SuperAdminTest` — passage
+  de 8 → 19 tests (création / validation slug + plan + email
+  / status active / update / force-plan + reason min / RBAC /
+  audit endpoint / régression `testSuspendNowWritesToAudit`).
 
-**Livrable** : un manager hôtel peut inviter son équipe par
-email, gérer les rôles, désactiver. Un SuperAdmin peut créer un
-tenant manuellement, éditer ses paramètres, et voir l'historique
-des actions admin. Production-ready côté gestion.
+⚠️ Tous marqués `@group integration` — cohérent avec le pattern
+Sprint 13 (point d'attention au backlog).
+
+**Suite globale finale** : 193 tests verts standard
+(`make test`) + 103 tests integration (`make test-integration`,
+1 échec pré-existant `testCreateReservationViaApiAppliesPromoCode`
+hérité Sprint 9, déjà au backlog).
+
+**Ajouts notables (Sprint 13bis)** — décisions et apprentissages
+- [x] **Décision « `forcePlan` débloque les tenants suspendus »** :
+  si un SuperAdmin force un nouveau plan (geste commercial), le
+  service met aussi `tenant.status = ACTIVE` automatiquement.
+  Sémantique cohérente avec `renewAfterPayment` (après IPN
+  Paydunya réussi). Évite l'étape inutile « réactiver puis
+  forcer le plan ».
+- [x] **Décision `updateTenant` skip-if-empty** : si aucun champ
+  n'est fourni dans le PATCH, 422 « Aucun champ à mettre à jour »
+  plutôt que succès vide. Évite de polluer l'audit log avec des
+  updates fantômes.
+- [x] **Double logging Monolog + audit_log** : les deux actions
+  `tenant.suspended` / `reactivated` du Sprint 13 écrivaient
+  déjà via Monolog (Papertrail) ; le 13bis ajoute le
+  `SuperAdminAuditService` en PLUS. Les deux coexistent —
+  Monolog pour debug, audit log pour traçabilité UI /
+  conformité. Pattern à reproduire sur toute action sensible.
+- [x] **Distinction Activité vs Historique** : sur la fiche
+  employé, deux vues complémentaires :
+  - Activité = actions FAITES par l'employé (filtre par
+    `staffUserEmail`) — utile au quotidien pour suivi d'équipe.
+  - Historique = actions SUR le profil (filtre par
+    `entityType` + `entityId`) — utile pour conformité RH.
+- [x] **Tracking `lastLoginAt`** : manque depuis Sprint 2,
+  révélé sur la fiche employé. Corrigé via listener Lexik JWT
+  filtré sur `StaffUser`.
+- [x] **Refactor `TempPasswordGenerator`** : 3 duplications
+  privées factorisées en un service partagé dès qu'un 3e
+  consommateur s'est présenté (`OnboardingService::provision`).
+
+**Livrable** : un manager hôtel peut désormais inviter par email
+ou créer directement son équipe, gérer leurs rôles, désactiver
+(soft), et consulter pour chaque employé son activité dans le
+système et l'historique de modifications de son profil. Un
+SuperAdmin peut créer manuellement un tenant (sans OTP, mode
+trial ou actif), éditer ses paramètres, forcer un plan (geste
+commercial avec reason obligatoire), et consulter le journal
+d'audit complet avec IP/UA. Le couplage Sprint 12 ↔ Sprint 13 ↔
+Sprint 13bis est cohérent et tracé bout-en-bout.
+
+---
+
+### ✅ Sprint 13ter — Configuration hôtel (manager) + templates seed
+**Objectif** : combler le trou opérationnel de la création de
+tenant — un nouveau tenant ne pouvait pas créer ses chambres,
+types ou étages depuis l'UI (les fixtures dev faisaient le job,
+montage qui ne tenait pas en prod). Périmètre :
+- CRUD complet Floor / RoomType / Room côté manager
+- Templates seed côté SuperAdmin pour pré-remplir un tenant à
+  sa création (vente directe / migration depuis autre PMS)
+- Limites quantitatives `maxRooms` enfin câblées
+
+⚠️ Décision retenue (Variante 2) : manager configure tout
+lui-même (priorité absolue) + SuperAdmin pré-remplit via
+templates au moment de la création. Pas d'écran SuperAdmin
+dédié à la configuration fine d'un tenant (Variante 3 reportée
+au backlog).
+
+**Backend — Migration + durcissement**
+- [x] Migration tenant `Version20260608000000HardenFloorsAndAuditConfig`
+  enregistrée dans `TenantMigrationRegistry`. Ajoute UNIQUE
+  index sur `floors.number` (dette pré-existante du Sprint 4 :
+  deux étages avec même numéro étaient possibles). Ajoute
+  `created_at` / `updated_at` (NOT NULL après backfill UPDATE)
+  sur `floors` et `room_types`.
+
+**Backend — Limites quantitatives (suite Sprint 13bis-A)**
+- [x] `SubscriptionLimitChecker::assertCanAddRoom()` — décompte
+  chambres actives, ENTERPRISE bypass (null = illimité), message
+  d'erreur explicite avec nom du plan et limite chiffrée.
+  Refactor des méthodes privées `countUserConsumption()` et
+  `countActiveRooms()` pour éviter la duplication entre `assert*`
+  et `get*Usage()`.
+- [x] `getRoomUsage()` retourne `{used, max, plan}` pour stat
+  card UI.
+
+**Backend — CRUD Floor**
+- [x] Entité `Floor` enrichie avec timestamps + groupes
+  serialization `floor:read`.
+- [x] `App\Controller\Api\FloorController` route prefix
+  `/api/floors`. RBAC : ROLE_MANAGER pour write, ROLE_ACCESS_ROOMS
+  pour read. Endpoints : GET liste (sortée par number), POST
+  create, PUT update (avec check d'unicité du nouveau number),
+  DELETE (FK protect avec message listant les chambres
+  bloquantes), POST deactivate, POST reactivate. Audit log
+  systématique sur chaque écriture.
+- [x] `FloorService` — toute la logique métier déléguée
+  (validation, audit, exceptions).
+- [x] DTOs `CreateFloorDTO` / `UpdateFloorDTO`.
+
+**Backend — CRUD RoomType**
+- [x] Entité `RoomType` enrichie avec timestamps.
+- [x] `App\Controller\Api\RoomTypeController` route prefix
+  `/api/room-types`. RBAC identique. Endpoints : GET liste
+  (sortOrder ASC), POST create (name unique case-insensitive,
+  baseRateXof > 0, maxOccupancy ≥ 1), PUT update, DELETE
+  (FK protect avec liste des chambres bloquantes, troncature
+  `…` si > 10).
+- [x] Le PUT legacy `/api/rooms/types/{id}` (Sprint 4) est
+  GARDÉ en parallèle pour ne pas casser le front existant.
+  À supprimer au Sprint 14 (dette).
+
+**Backend — CRUD Room étendu**
+- [x] `RoomController` étendu (le PUT existait déjà depuis
+  Sprint 4) : POST create unitaire avec check
+  `assertCanAddRoom`, POST bulk (max 50 chambres par batch,
+  numérotation séquentielle avec préfixe optionnel,
+  **rollback transactionnel** si la limite plan est dépassée
+  en cours de bulk), DELETE soft (active=false, FK protect
+  via réservations `confirmed`/`checked_in` avec retour des
+  confirmation numbers bloquants), POST reactivate (re-check
+  limite plan), GET `/api/rooms/usage` pour la jauge X/Y.
+- [x] `RoomService::bulkCreateRooms` : pre-flight check
+  d'unicité des numéros AVANT la transaction, `flush()` à
+  chaque itération pour que le count voie les chambres
+  précédemment persistées, `detach()` après rollback pour
+  protection cleanup. Audit log unique `room.created_bulk`
+  avec payload `{count, range}` (pas N entrées).
+- [x] DTOs `CreateRoomDTO`, `BulkCreateRoomsDTO`,
+  `UpdateRoomDTO`, `CreateRoomTypeDTO`, `UpdateRoomTypeDTO`.
+
+**Backend — Templates seed (SuperAdmin)**
+- [x] `App\Platform\Admin\Domain\Service\TenantSeedService` :
+  constantes publiques `TEMPLATE_EMPTY`, `TEMPLATE_SMALL_HOTEL`,
+  `TEMPLATE_MEDIUM_HOTEL`, `ALLOWED_TEMPLATES`. Méthode `seed()`
+  qui doit être appelée DEPUIS l'intérieur du search_path
+  tenant (invariant documenté). `small_hotel` = 1 étage + 1
+  type "Standard" 25000 XOF + 5 chambres. `medium_hotel` = 2
+  étages + 2 types (Standard 25k / Deluxe 45k) + 12 chambres.
+- [x] `OnboardingService::provision()` accepte 3e paramètre
+  `$seedTemplate` (default `TEMPLATE_EMPTY`), validation
+  contre `ALLOWED_TEMPLATES`, appel `tenantSeedService->seed()`
+  À L'INTÉRIEUR du `try` block du `SET search_path` (invariant
+  respecté). Le `finally` garantit le retour à `public`.
+- [x] `SuperAdminController::createTenant` accepte
+  `seed_template` dans le payload, validation et propagation
+  à `provision()`. Audit log enrichi avec le template choisi.
+
+**Backend — Commandes de gestion (livrées pendant le debug)**
+- [x] `App\Platform\Tenant\Application\Command\CleanupOrphanSchemasCommand`
+  (`stayos:tenant:cleanup-orphans`) : liste les schemas
+  `hotel_*` orphelins (= sans tenant correspondant dans
+  `public.tenants`), modes `--dry-run` et `--dump-to=<dir>`
+  (pg_dump avant DROP), confirmation interactive obligatoire,
+  double sécurité par recoupement (refus explicite de dropper
+  un schema actif même si la liste est corrompue entre temps).
+- [x] `App\Platform\Tenant\Application\Command\ProvisionTenantCommand`
+  (`stayos:tenant:provision <slug>`) : recrée le schema d'un
+  tenant existant si son schema venait à disparaître (outil
+  de réparation manuelle, validation préventive du nom de
+  schema avec regex).
+
+**Frontend — Module Configuration (manager)**
+- [x] `MODULE_ACCESS.configuration = ['MANAGER']`, entrée
+  sidebar "Configuration" (ti-settings) après "Personnel".
+- [x] `services/room.service.ts` étendu avec `create` / `bulk`
+  / `softDelete` / `reactivate` / `update` + nouveaux services
+  `floorService` et `roomTypeService` (extraction propre).
+- [x] `modules/property/views/HotelConfigurationView.vue` —
+  3 onglets (Étages / Types / Chambres) avec inline edit
+  Étages, modal édition Types, tableau filtrable Chambres
+  avec création unitaire + bulk + edit + soft delete +
+  reactivate.
+- [x] `modules/property/components/BulkCreateRoomsModal.vue`
+  — sélecteurs étage/type, aperçu live des numéros, gestion
+  422 limite plan avec message "vous pouvez ajouter N
+  supplémentaires".
+- [x] Stat card "X/Y chambres — Plan {nom}" dans l'onglet
+  Chambres.
+
+**Frontend — Templates SuperAdmin**
+- [x] `CreateTenantView.vue` étendu — select template avec
+  3 options et mention "modifiable par le manager après
+  création". Default `empty`. Modal de résultat mentionne le
+  template appliqué.
+
+**Tests**
+- [x] `tests/Unit/Service/SubscriptionLimitCheckerRoomTest`
+  — 4 tests miroirs de `assertCanAddUser` (no sub, enterprise,
+  limit reached, below limit).
+- [x] `tests/Functional/Api/Property/FloorControllerTest`
+  — CRUD RBAC, conflits unicité, DELETE protect avec chambres
+  liées.
+- [x] `tests/Functional/Api/Room/RoomTypeControllerTest`
+  — CRUD RBAC, unicité case-insensitive, DELETE protect.
+- [x] `tests/Functional/Api/Room/RoomCrudTest` — création
+  unitaire, bulk avec rollback transactionnel à la limite,
+  soft delete, reactivate avec limite, get usage.
+- [x] `tests/Functional/SuperAdmin/CreateTenantWithTemplateTest`
+  — empty / small_hotel / medium_hotel / invalid template.
+
+⚠️ Tous marqués `@group integration` — cohérent avec le
+pattern Sprint 13 / 13bis.
+
+**Hotfixes (correctifs intercalés)**
+- [x] **Hotfix #1** : `notif.toast()` n'existait pas dans le
+  store Pinia ; tous les appels remplacés par
+  `notif.pushUiToast(severity, title)`. Le `severity` enum
+  est `{info, success, warning, alert}` — il n'y a PAS de
+  `'error'`, c'est `'alert'` qu'il faut. ~26 occurrences dans
+  `HotelConfigurationView` + `BulkCreateRoomsModal`.
+- [x] **Hotfix #2** : `StaffListView.vue` — bouton "Désactiver"
+  désormais masqué pour le manager loggué sur sa propre ligne,
+  remplacé par un marqueur italique "Vous". `StaffDetailView`
+  gérait DÉJÀ correctement le cas via `isSelf()` mais la
+  liste avait été oubliée (asymétrie liste/détail).
+- [x] **Hotfix #3** : régression `roomService.getTypes is not
+  a function` — le refactor 13ter avait extrait la gestion des
+  types dans `roomTypeService` mais supprimé `roomService.getTypes()`
+  sans mettre à jour les consommateurs. 3 vues touchées
+  (`RatesView`, `RatePlanForm`, `RoomDetailView`). Le
+  `Promise.all` dans `RatesView.fetchAll()` rejetait
+  globalement et le `catch {}` muet avalait l'erreur
+  silencieusement → page Tarifs cassée sur TOUS les tenants.
+  Correctif inclut `Promise.allSettled` pour tolérance
+  partielle + logs explicites par requête échouée.
+
+**Debug schemas orphelins**
+- [x] Diagnostic : 24 schemas `hotel_*` en BDD pour 4 tenants
+  actifs dans `public.tenants`. Cause : `CREATE SCHEMA` non-
+  transactionnel en PostgreSQL → les rollbacks de tests
+  fonctionnels `@group integration` ne droppent pas le schema.
+  Idem `make fixtures` avec purger qui DELETE/TRUNCATE sans
+  DROP SCHEMA explicite.
+- [x] Résolution : commande `cleanup-orphans` livrée +
+  commande `tenant:provision` en bonus. Nettoyage manuel
+  exécuté avec 20 dumps SQL préalables dans
+  `/tmp/stayos-orphans/` (768 KB) : 4 tenants finaux (savana,
+  villa-collines, balladin, test-new-tenant), 4 schemas,
+  0 orphelin. Idempotence vérifiée (re-run `--dry-run`).
+
+**Ajouts notables (Sprint 13ter) — décisions et apprentissages**
+- [x] **Décision « rollback transactionnel sur bulk create »** :
+  si la limite plan est dépassée au milieu d'un mass-create
+  de 20 chambres, **toute la transaction est annulée**, pas
+  de création partielle. Sémantique atomique attendue par
+  l'utilisateur.
+- [x] **Décision « slug en lecture seule dans l'édition tenant »**
+  (du Sprint 13bis-B, confirmée Sprint 13ter) : changer un
+  slug casse les liens, IPN Paydunya, sessions JWT. Pas en V1.
+- [x] **Décision « Variante 2 » pour la configuration** :
+  manager configure tout lui-même + SuperAdmin pré-remplit
+  via templates. Pas d'écran SuperAdmin dédié à la configuration
+  fine (Variante 3 backlog).
+- [x] **Décision « templates = amorces modifiables »** : ce
+  qui est créé par `small_hotel` / `medium_hotel` reste
+  modifiable par le manager. Le SuperAdmin ne fige rien.
+
+**Livrable** : un manager hôtel peut désormais configurer son
+inventaire complet (étages, types, chambres) sans intervention
+SuperAdmin. Le SuperAdmin peut pré-remplir un tenant avec un
+template pour livrer un hôtel clé-en-main à un client en vente
+directe. Les limites plan (maxUsers du Sprint 13bis + maxRooms
+de ce sprint) sont enforced de bout en bout. L'environnement
+de dev dispose désormais d'outils de nettoyage et de
+réparation des schemas tenant.
 
 ---
 
@@ -784,15 +1114,16 @@ des actions admin. Production-ready côté gestion.
 | Intelligence | S10–S11 | 2 semaines | Dashboard + temps réel |
 | SaaS | S12–S13 | 2 semaines | Monétisation + supervision |
 | SaaS (suite) | S13bis | 1 semaine | Complétion opérationnelle (personnel + back-office) |
+| SaaS (suite) | S13ter | 1 semaine | Configuration hôtel manager + templates seed |
 | Production | S14 | 1 semaine | Déploiement + sécurité finale |
-| **Total** | **15 sprints** | **~15 semaines** | **App production-ready** |
+| **Total** | **16 sprints** | **~16 semaines** | **App production-ready** |
 
 ---
 
 ## Évolutions futures (backlog hors-sprint)
 
 Idées et besoins identifiés en cours de développement, à planifier
-après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
+après les 16 sprints initiaux ou à intégrer dans un sprint dédié.
 
 ### Housekeeping — préférences client & offres
 - **Client "Ne pas déranger" / refus du ménage quotidien** : permettre
@@ -815,9 +1146,11 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
 - ~~**UI d'assignation des tâches de ménage**~~ : livré au Sprint 11
   (bouton « Assigner »/« Réassigner » dans `TaskCard.vue`, popover
   avec `<select>` lazy-loaded depuis `/api/staff`).
-- ~~**Module de gestion du personnel (vraie RH)**~~ : intégré au
-  **Sprint 13bis** (gestion complète des `StaffUser`,
-  invitations email, RBAC, désactivation).
+- ✅ **Module de gestion du personnel (vraie RH)** — livré au
+  **Sprint 13bis** : invitations email avec token signé,
+  CRUD complet, soft delete (préserve audit log), RBAC fin,
+  password reset one-shot, journal d'activité par employé +
+  historique du compte (2 onglets sur la fiche).
 - **Stratégie d'assignation à définir (réflexion produit)** : assigner
   manuellement tâche par tâche (livré) ? par zone/étage attribué à
   chaque agent ? automatiquement à la génération des tâches ? La V1
@@ -862,18 +1195,16 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   expose pas encore. A ajouter si le besoin de ciblage fin se confirme.
 
 ### Contrôle d'abonnement & feature-gating
-- **Limites quantitatives des plans (priorité haute, avant prod)** :
-  les compteurs `maxRooms` et `maxUsers` des plans sont aujourd'hui
-  PUREMENT INFORMATIFS. `SubscriptionController::computeUsage` les
-  expose dans `SubscriptionView` mais aucun garde-fou n'empêche un
-  compte Starter de dépasser. À implémenter : check dans
-  `RoomService::create` via un nouveau
-  `SubscriptionLimitChecker::assertCanAddRoom()` (lecture
-  subscription + count des rooms actives), check équivalent dans
-  la future création d'utilisateurs staff (POST `/api/staff` qui
-  n'existe pas encore — l'endpoint actuel est read-only). Côté
-  front : griser le bouton « Nouvelle chambre » + tooltip
-  explicatif si à la limite. À traiter avant Sprint 14.
+- ✅ **Limites quantitatives des plans** — livré complètement :
+  - `maxUsers` : Sprint 13bis-A (`assertCanAddUser`, count
+    `StaffUser` actifs + `StaffInvitation` PENDING).
+  - `maxRooms` : Sprint 13ter (`assertCanAddRoom`, bulk avec
+    rollback transactionnel si dépassement en cours de batch).
+  - Affichage UI : stat cards « X/Y utilisateurs » et
+    « X/Y chambres — Plan {nom} » dans les onglets respectifs.
+    Aperçu live « N supplémentaires possibles » dans la modal
+    bulk create. Bypass ENTERPRISE (limite `null`) sur les
+    deux limites.
 - **Feature-gating via voter Symfony (priorité moyenne, Sprint 14)** :
   aujourd'hui les features sont gardées par appels manuels à
   `featureChecker->assertEnabled('feature_name')` au début des
@@ -895,6 +1226,94 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   (honnête) ; (B) garder mais badger « Bientôt disponible » dans
   `feature-labels.ts` et `PricingView` (transparent) ; (C) laisser
   tel quel (risqué).
+
+### Audit & traçabilité
+- **Normaliser `entityType` dans `audit_logs`** (priorité moyenne) :
+  incohérence identifiée Sprint 13bis-A. `Reservation` utilise
+  `'Reservation'` (PascalCase), staff utilise `'staff_user'`
+  (snake_case), les autres modules sont probablement encore sur
+  d'autres conventions. Décider d'une seule convention
+  (snake_case recommandé) et migrer les anciens logs +
+  unifier dans les services. Le journal d'activité par employé
+  s'en moque (il filtre par `staffUserEmail`), mais la lecture
+  d'un historique par entité (`findByEntity`) deviendrait
+  ambigüe si quelqu'un cherchait du snake_case alors qu'on a
+  stocké du PascalCase.
+- **Bug `entityId='new'` dans `ReservationEngine::create`**
+  (priorité moyenne) : l'audit log est écrit AVANT le flush
+  Doctrine, donc `entityId` vaut toujours la chaîne `'new'` au
+  lieu de l'ID réel. Conséquences : (1) le lien depuis le
+  journal d'activité vers la réservation est impossible ; (2)
+  `findByEntity('Reservation', 'new')` retourne TOUS les
+  `reservation.created` du tenant. À corriger en remontant le
+  `auditService->log()` APRÈS le flush dans le repository.
+- **Filtre date dans `/superadmin/audit`** (priorité basse) :
+  pas de `?from` / `?to` en V1. Avec un volume croissant
+  (toutes les actions sensibles SuperAdmin + suspend/reactivate
+  rétroactifs), la navigation par pagination seule deviendra
+  pénible. À ajouter quand le volume le justifie.
+- **Filtre `?plan=` dans `/superadmin/tenants`** (priorité basse) :
+  la sous-requête actuelle matche TOUTE subscription historique
+  ayant été sur ce plan, sans filtrer sur `status='active'`.
+  Pas un problème V1 (1 subscription par tenant), à durcir en
+  V2 quand on aura des historiques de upgrade/downgrade.
+- **Symétrie des protections UI liste/détail** (priorité basse) :
+  leçon Sprint 13ter — `StaffListView` exposait le bouton
+  « Désactiver » sur soi-même alors que `StaffDetailView` le
+  masquait correctement via `isSelf()`. Pattern à vérifier
+  ailleurs : partout où une logique de protection s'applique
+  à un élément (RBAC, self-edit, soft-delete...), vérifier
+  les DEUX vues (liste + détail) où il peut apparaître. Idéal :
+  un helper `canMutate(item)` partagé entre liste et détail
+  pour ne jamais désynchroniser.
+
+### Plateforme & onboarding
+- **Transactionnaliser `OnboardingService::register/provision`**
+  (priorité moyenne, atténuée Sprint 13ter) : si
+  `TenantProvisioner::provision()` échoue après que le `Tenant`
+  a été persisté, on a un tenant orphelin en BDD sans schema
+  PostgreSQL associé (ou l'inverse : schema orphelin sans
+  tenant). Dette héritée du Sprint 2 (`register`) et
+  reproduite au Sprint 13bis-B (`provision`). Sprint 13ter
+  livre un filet de sécurité avec
+  `stayos:tenant:cleanup-orphans` pour nettoyer a posteriori,
+  mais ce n'est pas la prévention. À traiter au Sprint 14
+  pour empêcher la pollution en amont : `beginTransaction()`
+  autour de toute la méthode + `DROP SCHEMA IF EXISTS` en cas
+  de rollback (`CREATE SCHEMA` est DDL non-transactionnel en
+  PostgreSQL — attention au rollback partiel).
+- **Variante 3 — UI SuperAdmin de configuration d'un tenant
+  existant** (priorité basse, V2) : aujourd'hui le SuperAdmin
+  pré-remplit via templates au moment de la création
+  (Variante 2, livré Sprint 13ter). Si un commercial doit
+  ajuster la configuration d'un tenant DÉJÀ existant, il doit
+  se connecter avec les credentials du manager. Pour aller
+  plus loin, un écran SuperAdmin dédié permettrait de
+  configurer n'importe quel tenant cible sans
+  impersonification. Implique : multi-tenant côté lecture pour
+  le SuperAdmin (assez complexe), RBAC adapté, audit log
+  enrichi sur qui-a-modifié-quel-tenant. Reporté à V2.
+- **`TenantUrlBuilder` factorisation incomplète** (priorité
+  basse) : helper partagé `Shared/Url/TenantUrlBuilder` créé au
+  Sprint 13bis-A pour `EmailService::sendStaffInvitation`, mais
+  `SaasInvoiceService::buildTenantUrl` n'a pas encore été
+  migré dessus. À finaliser quand on touchera au checkout
+  Paydunya au Sprint 14.
+- **Cleanup automatique des schemas orphelins dans les tests**
+  (priorité moyenne) : la commande
+  `stayos:tenant:cleanup-orphans` (livrée hotfix Sprint 13ter)
+  est une solution curative. Pollution constatée en juin 2026 :
+  20 schemas `hotel_*` orphelins en BDD locale après ~3 mois
+  de tests `@group integration`. Origine : `CREATE SCHEMA` est
+  un DDL non-transactionnel — le rollback transactionnel d'un
+  test ne supprime pas le schema créé. À traiter :
+  (1) appeler `TenantProvisioner::deprovision($tenant)` en
+  `tearDown` de chaque test qui provisionne ; (2) ajouter un
+  hook PHPUnit globall qui purge en fin de suite ; (3) lancer
+  `stayos:tenant:cleanup-orphans --dry-run` en pre-commit CI
+  pour alerter si des orphelins traînent. Cas particulier :
+  les schemas dumpés avant DROP (mode `--dump-to`) restent
+  récupérables via `psql -f /tmp/orphan_*.sql`.
 
 ### Dashboard & rapports — enrichissements
 - **Comparaison vs periode precedente** : afficher la variation % des
@@ -993,22 +1412,46 @@ après les 14 sprints initiaux ou à intégrer dans un sprint dédié.
   tout doit être résolu via `%env(VAR)%` avec un défaut explicite
   si besoin. Sinon les variables d'env ne servent à rien et la
   prod utilisera des valeurs de dev.
-- **Tests `@group integration` silencieusement skippés
-  (Sprint 13)** : les 8 tests `SuperAdminTest` sont marqués
-  `@group integration` parce qu'ils dépendent des fixtures, et
-  `phpunit.xml.dist` exclut ce groupe par défaut. Donc
-  `make test` retourne « 189 tests verts » sans les exécuter,
-  masquant des régressions potentielles. Trois options à
-  arbitrer :
+- **Tests `@group integration` silencieusement skippés**
+  (priorité haute, à traiter Sprint 14) : 103 tests
+  integration désormais (8 SuperAdmin Sprint 13 +
+  12 StaffInvitation + 18 StaffCrud + 4 unit
+  SubscriptionLimitChecker + 2 LoginUpdatesLastLoginAt
+  Sprint 13bis-A + 11 SuperAdminTest Sprint 13bis-B + autres),
+  tous exclus de `make test` standard. `make test` retourne
+  « 193 tests verts » sans les exécuter, masquant des
+  régressions potentielles. Trois options à arbitrer :
   (A) retirer l'annotation `@group integration` (les tests
-  SuperAdmin tournent en ~4 s, acceptable) ;
-  (B) garder l'annotation et ajouter une cible Makefile
-  `make test-integration` qui force `--group integration`,
-  intégrée à un `make test-all` ;
-  (C) revoir tous les tests `@group integration` du projet pour
-  décider lesquels doivent vraiment être exclus par défaut.
-  À traiter au Sprint 14 (production-ready) en même temps que la
-  CI.
+  tournent en ~30 s cumulés, acceptable en CI) ;
+  (B) garder l'annotation et systématiser un appel à
+  `make test-integration` (cible Makefile existante) dans
+  un `make test-all` + en CI ;
+  (C) revoir tous les tests `@group integration` du projet
+  pour décider lesquels doivent vraiment être exclus par
+  défaut (vrais tests E2E qui montent une chaîne externe
+  vs tests fonctionnels qui ont juste besoin des fixtures).
+  À traiter au Sprint 14 (production-ready) en même temps
+  que la mise en place de la CI.
+- **Tests de schema cleanup en tearDown** (priorité moyenne) :
+  les tests fonctionnels `@group integration` qui créent des
+  tenants via `OnboardingService::provision` laissent des
+  schemas orphelins en BDD (cause directe des 20 orphelins
+  trouvés au debug Sprint 13ter). À traiter : ajouter un
+  `tearDownAfterClass` qui appelle `cleanup-orphans` ou un
+  helper `TenantTestCase::dropProvisionedSchemas()` qui track
+  les schemas créés par les tests et les drop à la fin.
+  Idéalement complété par un hook CI qui exécute
+  `stayos:tenant:cleanup-orphans --dry-run` après la suite
+  et fail si le dry-run n'est pas vide.
+- **Mode strict TypeScript pour les imports de services**
+  (priorité haute, avant prod) : leçon Sprint 13ter — le
+  refactor `roomService.getTypes` → `roomTypeService.getAll`
+  a cassé 3 vues parce que les imports n'ont pas été détectés
+  par le compilateur (`vite build` ne fait pas de type-check
+  strict). Vérifier la config `tsconfig.json` :
+  `noUnusedLocals`, `noImplicitAny`, `strict: true`. Ajouter
+  un step `tsc --noEmit` dans la CI — c'est ce qui aurait
+  attrapé la régression au build.
 
 #### Deprecations PHP/Symfony (priorité basse)
 - **`StaffUser::eraseCredentials()`** à annoter `#[\Deprecated]` —
@@ -1108,3 +1551,62 @@ ce ne sont pas des tickets mais des réflexes à appliquer.
   composants « préparés pour un futur sprint » avec un
   commentaire pointant vers le sprint cible, pour qu'on retrouve
   facilement.
+- **Audit logging à 2 niveaux (Monolog + table BDD)** : le
+  projet utilise deux mécanismes complémentaires —
+  `$logger->info()` (channel `business` → Papertrail, debug et
+  observabilité externe) et `$auditService->log()` (table
+  `audit_logs` tenant ou `superadmin_audit_log` public →
+  conformité, traçabilité UI). Ils ne se remplacent PAS. Le
+  Sprint 13bis a appris (à la dure) qu'il faut écrire dans les
+  deux pour les actions sensibles (suspend, reset password,
+  force-plan, désactivation staff), sinon on perd un usage
+  (debug ↔ UI). `tenant.suspended` du Sprint 13 n'écrivait QUE
+  dans Monolog → invisible dans le journal d'audit UI ; corrigé
+  au 13bis-B (test de régression
+  `testSuspendNowWritesToAudit`). Réflexe à appliquer : sur
+  toute action sensible, prévoir les deux dès l'écriture.
+- **Distinction « actions sur l'entité » vs « actions par
+  l'acteur »** : les audit logs supportent deux types de
+  requêtes — historique d'une entité (`WHERE entityType +
+  entityId`) et journal d'un acteur (`WHERE staffUserEmail`).
+  Ce sont deux questions différentes et **deux vues UI
+  complémentaires**, pas redondantes. Sur la fiche employé du
+  Sprint 13bis, l'onglet « Activité » répond à « qu'est-ce
+  qu'il a fait ? » et l'onglet « Historique » répond à « qui a
+  touché à son profil ? ». Pattern à reproduire ailleurs
+  (ex : fiche client → activité commerciale + historique de
+  modifications du contact ; fiche chambre → historique des
+  réservations + historique des changements de statut).
+- **Vérifier l'API réelle des stores Pinia avant tout nouvel
+  appel** (Sprint 13ter, hotfix #1) : Claude Code a inventé
+  `notif.toast({type, message})` qui n'existait pas dans le
+  store. L'API réelle est `pushUiToast(severity, title, body?)`
+  avec severity ∈ `{info, success, warning, alert}` (il n'y a
+  PAS de `'error'`). Quand on introduit beaucoup d'appels à
+  un store dans une vue, **ouvrir le store et lire les
+  méthodes exposées** avant d'écrire le premier appel — pas
+  d'inférence par analogie avec d'autres frameworks. Idéalement,
+  le typage TS strict du store devrait empêcher ce genre
+  d'erreur (cf. backlog « mode strict TS imports »).
+- **`CREATE SCHEMA` PostgreSQL est non-transactionnel** (Sprint
+  13ter, debug) : un rollback de transaction n'annule pas un
+  `CREATE SCHEMA`. Toute logique qui crée un schema sans
+  `DROP SCHEMA IF EXISTS` explicite en cas d'échec PEUT laisser
+  des résidus. Conséquence : les tests fonctionnels qui créent
+  des tenants ont besoin d'un teardown explicite, et la BDD de
+  dev a besoin d'une commande de nettoyage périodique. La
+  commande `stayos:tenant:cleanup-orphans` livrée au 13ter est
+  le filet de sécurité curatif, mais ce n'est pas la
+  prévention. Réflexe à appliquer : tout endroit qui fait du
+  DDL (CREATE/DROP TABLE, INDEX, SCHEMA) doit être encadré par
+  du code défensif explicite — pas confier au rollback ORM.
+- **Symétrie des protections UI liste/détail** (Sprint 13ter,
+  hotfix #2) : quand une logique de protection s'applique à
+  un élément (RBAC, self-edit, soft-delete, etc.), elle doit
+  être vérifiée systématiquement dans les DEUX vues où
+  l'élément peut apparaître (liste vs détail). Pattern à
+  reproduire partout — fiche client, fiche réservation, fiche
+  facture. Si l'élément n'est PAS éligible à une action dans
+  la vue détail, il ne doit PAS l'être non plus dans la vue
+  liste. Idéal : un helper `canMutate(item)` partagé entre
+  liste et détail pour ne jamais désynchroniser.

@@ -8,6 +8,9 @@ export interface Floor {
   id: string
   number: number
   name: string | null
+  active?: boolean
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface RoomType {
@@ -16,6 +19,15 @@ export interface RoomType {
   baseRateXof: string
   maxOccupancy: number
   description?: string | null
+  bedConfiguration?: Array<{ type: string; count: number }> | null
+  amenities?: string[] | null
+  sortOrder?: number
+}
+
+export interface RoomUsage {
+  used: number
+  max: number | null
+  plan: string | null
 }
 
 export interface Room {

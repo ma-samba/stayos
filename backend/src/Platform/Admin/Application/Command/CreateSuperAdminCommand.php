@@ -12,6 +12,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use App\Shared\Security\TempPasswordGenerator;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 
@@ -24,6 +25,7 @@ final class CreateSuperAdminCommand extends Command
     public function __construct(
         private readonly EntityManagerInterface       $entityManager,
         private readonly UserPasswordHasherInterface  $passwordHasher,
+        private readonly TempPasswordGenerator        $tempPasswordGenerator,
     ) {
         parent::__construct();
     }
@@ -69,7 +71,7 @@ final class CreateSuperAdminCommand extends Command
         $password = (string) ($input->getOption('password') ?? '');
         $generated = false;
         if ($password === '') {
-            $password  = $this->generatePassword();
+            $password  = $this->tempPasswordGenerator->generate();
             $generated = true;
         }
 
@@ -97,33 +99,4 @@ final class CreateSuperAdminCommand extends Command
         return Command::SUCCESS;
     }
 
-    /**
-     * Génère un mot de passe de 16 caractères mêlant majuscules,
-     * minuscules, chiffres et caractères spéciaux.
-     */
-    private function generatePassword(): string
-    {
-        $lower   = 'abcdefghijklmnopqrstuvwxyz';
-        $upper   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        $digits  = '0123456789';
-        $special = '!@#$%^&*-_=+';
-
-        $chars = $lower . $upper . $digits . $special;
-
-        // Garantir au moins 1 de chaque catégorie
-        $pwd = [
-            $lower[random_int(0, strlen($lower) - 1)],
-            $upper[random_int(0, strlen($upper) - 1)],
-            $digits[random_int(0, strlen($digits) - 1)],
-            $special[random_int(0, strlen($special) - 1)],
-        ];
-
-        for ($i = 4; $i < 16; $i++) {
-            $pwd[] = $chars[random_int(0, strlen($chars) - 1)];
-        }
-
-        shuffle($pwd);
-
-        return implode('', $pwd);
-    }
 }

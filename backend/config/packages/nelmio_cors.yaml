@@ -25,3 +25,11 @@ nelmio_cors:
             allow_origin: ['%env(default::SUPERADMIN_URL)%']
             allow_methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
             allow_headers: ['Content-Type', 'Authorization']
+        '^/public':
+            allow_origin:
+                - 'http://localhost:5173'
+                - '^http://[a-z0-9-]+\.localhost:5173$'
+                - '%env(default::FRONTEND_URL)%'
+                - '^https://stayos.*\.vercel\.app$'
+            allow_methods: ['GET', 'POST', 'OPTIONS']
+            allow_headers: ['Content-Type', 'X-Tenant-Slug']

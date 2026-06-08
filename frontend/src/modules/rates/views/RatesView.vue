@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
 import { rateService } from '@/services/rate.service'
-import { roomService } from '@/services/room.service'
+import { roomTypeService } from '@/services/room.service'
 import { formatCurrency } from '@/utils/currency'
 import type { RatePlan, SeasonalRate, Promotion, RoomType } from '@/types/entities'
 import RatePlanForm from '../components/RatePlanForm.vue'
@@ -49,22 +49,45 @@ const editingPromo     = ref<Promotion | null>(null)
 async function fetchAll(): Promise<void> {
   loading.value = true
   error.value = null
-  try {
-    const [rt, p, s, pr] = await Promise.all([
-      roomService.getTypes(),
-      rateService.listPlans(),
-      rateService.listSeasonal(),
-      rateService.listPromotions(),
-    ])
-    roomTypes.value  = rt
-    plans.value      = p
-    seasonals.value  = s
-    promotions.value = pr
-  } catch {
-    error.value = 'Impossible de charger les tarifs'
-  } finally {
-    loading.value = false
+
+  const [rtR, pR, sR, prR] = await Promise.allSettled([
+    roomTypeService.getAll(),
+    rateService.listPlans(),
+    rateService.listSeasonal(),
+    rateService.listPromotions(),
+  ])
+
+  const failures: string[] = []
+  if (rtR.status === 'fulfilled') {
+    roomTypes.value = rtR.value
+  } else {
+    console.error('roomTypeService.getAll failed:', rtR.reason)
+    failures.push('types de chambre')
   }
+  if (pR.status === 'fulfilled') {
+    plans.value = pR.value
+  } else {
+    console.error('rateService.listPlans failed:', pR.reason)
+    failures.push('plans tarifaires')
+  }
+  if (sR.status === 'fulfilled') {
+    seasonals.value = sR.value
+  } else {
+    console.error('rateService.listSeasonal failed:', sR.reason)
+    failures.push('saisons')
+  }
+  if (prR.status === 'fulfilled') {
+    promotions.value = prR.value
+  } else {
+    console.error('rateService.listPromotions failed:', prR.reason)
+    failures.push('promotions')
+  }
+
+  if (failures.length > 0) {
+    error.value = `Impossible de charger : ${failures.join(', ')}.`
+  }
+
+  loading.value = false
 }
 
 // ── Room Type actions ──

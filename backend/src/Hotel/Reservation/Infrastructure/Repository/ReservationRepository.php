@@ -123,6 +123,35 @@ class ReservationRepository extends ServiceEntityRepository
     }
 
     /**
+     * Réservations bloquantes pour une chambre (CONFIRMED ou CHECKED_IN).
+     * Utilisé avant un soft-delete de chambre — Sprint 13ter.
+     *
+     * @return array<int, array{id:string, confirmationNumber:string, status:string}>
+     */
+    public function findBlockingForRoom(string $roomId, int $limit = 10): array
+    {
+        $rows = $this->createQueryBuilder('r')
+            ->select('r.id', 'r.confirmationNumber', 'r.status')
+            ->where('r.room = :roomId')
+            ->andWhere('r.status IN (:activeStatuses)')
+            ->setParameter('roomId', $roomId)
+            ->setParameter('activeStatuses', [
+                ReservationStatus::CONFIRMED->value,
+                ReservationStatus::CHECKED_IN->value,
+            ])
+            ->orderBy('r.checkIn', 'ASC')
+            ->setMaxResults($limit)
+            ->getQuery()
+            ->getArrayResult();
+
+        return array_map(fn (array $r) => [
+            'id'                 => (string) $r['id'],
+            'confirmationNumber' => $r['confirmationNumber'],
+            'status'             => $r['status'],
+        ], $rows);
+    }
+
+    /**
      * Génère un numéro de confirmation unique : RES-YYYY-NNNNN
      */
     public function generateConfirmationNumber(): string

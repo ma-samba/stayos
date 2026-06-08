@@ -103,8 +103,16 @@ onMounted(() => {
 <template>
   <div class="sa-page">
     <header class="sa-page-head">
-      <h1>Tenants</h1>
-      <p class="t-muted">Tous les hôtels enregistrés sur la plateforme.</p>
+      <div>
+        <h1>Tenants</h1>
+        <p class="t-muted">Tous les hôtels enregistrés sur la plateforme.</p>
+      </div>
+      <button
+        class="btn btn-primary btn-sm"
+        @click="router.push('/superadmin/tenants/new')"
+      >
+        <i class="ti ti-building-plus"></i> Nouveau tenant
+      </button>
     </header>
 
     <!-- Métriques en haut -->
@@ -250,7 +258,12 @@ onMounted(() => {
 }
 
 .sa-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 1.5rem;
+  flex-wrap: wrap;
 }
 .sa-page-head h1 {
   font-size: 22px;

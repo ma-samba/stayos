@@ -1,9 +1,15 @@
 import axios, { type AxiosInstance } from 'axios'
 import type {
+  CreateTenantPayload,
+  CreateTenantResponse,
+  ForcePlanPayload,
   PlatformMetrics,
+  SuperAdminAuditListParams,
+  SuperAdminAuditResponse,
   TenantDetail,
   TenantSummary,
   TenantsListResponse,
+  UpdateTenantPayload,
 } from '@/types/superadmin'
 
 // ──────────────────────────────────────────────────────────────
@@ -105,6 +111,40 @@ export const superadminService = {
       '/superadmin/metrics',
     )
     return data.data
+  },
+
+  // ── Sprint 13bis-B ────────────────────────────────────────
+
+  async createTenant(payload: CreateTenantPayload): Promise<CreateTenantResponse> {
+    const { data } = await superadminApi.post<{ data: CreateTenantResponse }>(
+      '/superadmin/tenants',
+      payload,
+    )
+    return data.data
+  },
+
+  async updateTenant(slug: string, payload: UpdateTenantPayload): Promise<TenantSummary> {
+    const { data } = await superadminApi.patch<{ data: TenantSummary }>(
+      `/superadmin/tenants/${encodeURIComponent(slug)}`,
+      payload,
+    )
+    return data.data
+  },
+
+  async forcePlan(slug: string, payload: ForcePlanPayload): Promise<TenantSummary> {
+    const { data } = await superadminApi.post<{ data: TenantSummary }>(
+      `/superadmin/tenants/${encodeURIComponent(slug)}/force-plan`,
+      payload,
+    )
+    return data.data
+  },
+
+  async listAudit(params: SuperAdminAuditListParams = {}): Promise<SuperAdminAuditResponse> {
+    const { data } = await superadminApi.get<SuperAdminAuditResponse>(
+      '/superadmin/audit',
+      { params },
+    )
+    return data
   },
 }
 

@@ -30,6 +30,10 @@ security:
             pattern: ^/api/onboarding
             security: false
 
+        public_invitations:
+            pattern: ^/public/invitations
+            security: false
+
         send_otp:
             pattern: ^/api/auth/send-otp$
             security: false
@@ -86,6 +90,7 @@ security:
         - { path: ^/api/health,          roles: PUBLIC_ACCESS }
         - { path: ^/api/payments/paydunya/ipn, roles: PUBLIC_ACCESS }
         - { path: ^/api/onboarding,      roles: PUBLIC_ACCESS }
+        - { path: ^/public/invitations,  roles: PUBLIC_ACCESS }
         - { path: ^/api/auth/login,      roles: PUBLIC_ACCESS }
         - { path: ^/api/auth/refresh,    roles: PUBLIC_ACCESS }
         - { path: ^/api/auth/send-otp,   roles: PUBLIC_ACCESS }

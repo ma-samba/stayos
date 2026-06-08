@@ -31,6 +31,13 @@ export default defineConfig({
           }
         },
       },
+      // Proxy /public → backend Symfony (endpoints publics, ex.
+      // acceptation d'invitation employé). Pas de routing Vue Router
+      // sur /public, donc pas besoin du bypass HTML.
+      '/public': {
+        target: 'http://nginx:80',
+        changeOrigin: true,
+      },
       // Proxy Mercure SSE
       '/.well-known/mercure': {
         target: 'http://mercure:9090',

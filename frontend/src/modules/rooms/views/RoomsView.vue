@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useRoomsStore } from '@/stores/rooms.store'
+import { useAuthStore } from '@/stores/auth.store'
 import RoomCard from '@/modules/rooms/components/RoomCard.vue'
 import type { RoomStatus } from '@/types/entities'
+
+const router = useRouter()
+const auth = useAuthStore()
 
 // ──────────────────────────────────────────────────────────────
 //  Store
@@ -102,6 +107,14 @@ const statusLabel: Record<RoomStatus, string> = {
         </h1>
         <p class="t-muted">Statut en temps réel · Mis à jour automatiquement</p>
       </div>
+      <button
+        v-if="auth.canAccess('configuration')"
+        class="btn btn-secondary"
+        @click="router.push('/configuration')"
+      >
+        <i class="ti ti-settings" aria-hidden="true"></i>
+        Configurer l'hôtel
+      </button>
     </div>
 
     <!-- ── Stat cards ── -->

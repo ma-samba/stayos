@@ -5,12 +5,19 @@ declare(strict_types=1);
 namespace App\Controller\SuperAdmin;
 
 use App\Platform\Admin\Domain\Service\PlatformMetricsService;
+use App\Platform\Admin\Domain\Service\SuperAdminAuditService;
+use App\Platform\Admin\Domain\Service\TenantSeedService;
+use App\Platform\Admin\Infrastructure\Doctrine\SuperAdminAuditLogRepository;
+use App\Platform\Auth\Domain\Service\OnboardingService;
+use App\Platform\Subscription\Domain\Entity\Plan;
 use App\Platform\Subscription\Domain\Service\AbonnementService;
 use App\Platform\Subscription\Infrastructure\Doctrine\SaasInvoiceRepository;
 use App\Platform\Subscription\Infrastructure\Doctrine\SubscriptionRepository;
 use App\Platform\Tenant\Domain\Entity\Tenant;
 use App\Platform\Tenant\Domain\Enum\TenantStatus;
 use App\Platform\Tenant\Infrastructure\Doctrine\TenantRepository;
+use App\Platform\User\Domain\Entity\User;
+use App\Shared\Exception\AlreadyExistsException;
 use App\Shared\Exception\BusinessRuleException;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -38,12 +45,15 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 class SuperAdminController extends AbstractController
 {
     public function __construct(
-        private readonly TenantRepository        $tenantRepository,
-        private readonly SubscriptionRepository  $subscriptionRepository,
-        private readonly SaasInvoiceRepository   $invoiceRepository,
-        private readonly AbonnementService       $abonnementService,
-        private readonly PlatformMetricsService  $metricsService,
-        private readonly EntityManagerInterface  $entityManager,
+        private readonly TenantRepository              $tenantRepository,
+        private readonly SubscriptionRepository        $subscriptionRepository,
+        private readonly SaasInvoiceRepository         $invoiceRepository,
+        private readonly AbonnementService             $abonnementService,
+        private readonly PlatformMetricsService        $metricsService,
+        private readonly OnboardingService             $onboardingService,
+        private readonly SuperAdminAuditService        $auditService,
+        private readonly SuperAdminAuditLogRepository  $auditLogRepository,
+        private readonly EntityManagerInterface        $entityManager,
     ) {}
 
     #[Route('/tenants', name: 'tenants_list', methods: ['GET'])]
@@ -170,6 +180,14 @@ class SuperAdminController extends AbstractController
             return $this->jsonError($e->getMessage(), 'BUSINESS_RULE', 422);
         }
 
+        $this->auditService->log(
+            actor:   $this->getActor(),
+            tenant:  $tenant,
+            action:  'tenant.suspended',
+            payload: ['reason' => $reason],
+            request: $request,
+        );
+
         return new JsonResponse([
             'data'    => $this->serializeTenantSummary($tenant),
             'status'  => 200,
@@ -178,7 +196,7 @@ class SuperAdminController extends AbstractController
     }
 
     #[Route('/tenants/{slug}/reactivate', name: 'tenants_reactivate', methods: ['POST'])]
-    public function reactivateTenant(string $slug): JsonResponse
+    public function reactivateTenant(string $slug, Request $request): JsonResponse
     {
         $tenant = $this->tenantRepository->findBySlug($slug);
         if ($tenant === null) {
@@ -190,6 +208,14 @@ class SuperAdminController extends AbstractController
         } catch (BusinessRuleException $e) {
             return $this->jsonError($e->getMessage(), 'BUSINESS_RULE', 422);
         }
+
+        $this->auditService->log(
+            actor:   $this->getActor(),
+            tenant:  $tenant,
+            action:  'tenant.reactivated',
+            payload: null,
+            request: $request,
+        );
 
         return new JsonResponse([
             'data'    => $this->serializeTenantSummary($tenant),
@@ -206,6 +232,320 @@ class SuperAdminController extends AbstractController
             'status'  => 200,
             'message' => 'OK',
         ]);
+    }
+
+    /**
+     * POST /superadmin/tenants — Création manuelle d'un tenant par
+     * l'opérateur (Sprint 13bis-B). Pas d'OTP : l'identité a été
+     * vérifiée hors plateforme.
+     */
+    #[Route('/tenants', name: 'tenants_create', methods: ['POST'])]
+    public function createTenant(Request $request): JsonResponse
+    {
+        $body = json_decode($request->getContent() ?: '[]', true) ?? [];
+
+        $hotelName = trim((string) ($body['hotel_name'] ?? ''));
+        $slug      = strtolower(trim((string) ($body['slug'] ?? '')));
+        $email     = strtolower(trim((string) ($body['manager_email'] ?? '')));
+        $first     = trim((string) ($body['manager_first_name'] ?? ''));
+        $last      = trim((string) ($body['manager_last_name']  ?? ''));
+        $plan      = strtoupper(trim((string) ($body['plan'] ?? 'STARTER')));
+        $initial   = (string) ($body['initial_status'] ?? 'trial');
+        $template  = (string) ($body['seed_template'] ?? TenantSeedService::TEMPLATE_EMPTY);
+
+        if ($hotelName === '') {
+            return $this->jsonError('hotel_name requis.', 'VALIDATION_ERROR', 422);
+        }
+        if (!preg_match('/^[a-z0-9-]{2,40}$/', $slug)) {
+            return $this->jsonError(
+                "Slug invalide (lettres minuscules, chiffres et tirets uniquement, 2-40 caractères).",
+                'VALIDATION_ERROR',
+                422,
+            );
+        }
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return $this->jsonError('manager_email invalide.', 'VALIDATION_ERROR', 422);
+        }
+        if ($first === '' || $last === '') {
+            return $this->jsonError('Prénom et nom du manager requis.', 'VALIDATION_ERROR', 422);
+        }
+        if (!in_array($plan, ['STARTER', 'PRO', 'ENTERPRISE'], true)) {
+            return $this->jsonError('Plan invalide.', 'VALIDATION_ERROR', 422);
+        }
+        if (!in_array($initial, ['trial', 'active'], true)) {
+            return $this->jsonError(
+                "initial_status doit valoir 'trial' ou 'active'.",
+                'VALIDATION_ERROR',
+                422,
+            );
+        }
+        if (!in_array($template, TenantSeedService::ALLOWED_TEMPLATES, true)) {
+            return $this->jsonError(
+                'seed_template invalide.',
+                'VALIDATION_ERROR',
+                422,
+            );
+        }
+
+        try {
+            $result = $this->onboardingService->provision([
+                'hotel_name' => $hotelName,
+                'slug'       => $slug,
+                'email'      => $email,
+                'first_name' => $first,
+                'last_name'  => $last,
+                'plan'       => $plan,
+            ], $initial, $template);
+        } catch (AlreadyExistsException $e) {
+            return $this->jsonError($e->getMessage(), 'ALREADY_EXISTS', 409);
+        } catch (BusinessRuleException $e) {
+            return $this->jsonError($e->getMessage(), 'BUSINESS_RULE', 422);
+        }
+
+        $this->auditService->log(
+            actor:   $this->getActor(),
+            tenant:  $result['tenant'],
+            action:  'tenant.created',
+            payload: [
+                'slug'           => $slug,
+                'plan'           => $plan,
+                'initial_status' => $initial,
+                'seed_template'  => $template,
+                'manager_email'  => $email,
+            ],
+            request: $request,
+        );
+
+        return new JsonResponse([
+            'data' => [
+                'tenant'           => $this->serializeTenantSummary($result['tenant']),
+                'manager_password' => $result['password'],
+                'seed_template'    => $template,
+            ],
+            'message' => 'Tenant créé. Communiquez le mot de passe au manager — il ne sera plus jamais affiché.',
+            'status'  => 201,
+        ], 201);
+    }
+
+    /**
+     * PATCH /superadmin/tenants/{slug} — Édition des paramètres
+     * mutables d'un tenant. Slug/subdomain/id NON modifiables.
+     */
+    #[Route('/tenants/{slug}', name: 'tenants_update', methods: ['PATCH'])]
+    public function updateTenant(string $slug, Request $request): JsonResponse
+    {
+        $tenant = $this->tenantRepository->findBySlug($slug);
+        if ($tenant === null) {
+            return $this->jsonError('Tenant introuvable.', 'NOT_FOUND', 404);
+        }
+
+        $body = json_decode($request->getContent() ?: '[]', true) ?? [];
+
+        $before = [
+            'name'     => $tenant->getName(),
+            'timezone' => $tenant->getTimezone(),
+            'country'  => $tenant->getCountry(),
+            'currency' => $tenant->getCurrency(),
+        ];
+
+        $touched = false;
+
+        if (array_key_exists('name', $body)) {
+            $value = trim((string) $body['name']);
+            if ($value === '') {
+                return $this->jsonError('Nom invalide.', 'VALIDATION_ERROR', 422);
+            }
+            $tenant->setName($value);
+            $touched = true;
+        }
+        if (array_key_exists('timezone', $body)) {
+            $value = trim((string) $body['timezone']);
+            if ($value === '') {
+                return $this->jsonError('Timezone invalide.', 'VALIDATION_ERROR', 422);
+            }
+            $tenant->setTimezone($value);
+            $touched = true;
+        }
+        if (array_key_exists('country', $body)) {
+            $value = strtoupper(trim((string) $body['country']));
+            if (!preg_match('/^[A-Z]{2}$/', $value)) {
+                return $this->jsonError('Code pays ISO-2 attendu.', 'VALIDATION_ERROR', 422);
+            }
+            $tenant->setCountry($value);
+            $touched = true;
+        }
+        if (array_key_exists('currency', $body)) {
+            $value = strtoupper(trim((string) $body['currency']));
+            if (!preg_match('/^[A-Z]{3}$/', $value)) {
+                return $this->jsonError('Code devise ISO-3 attendu.', 'VALIDATION_ERROR', 422);
+            }
+            $tenant->setCurrency($value);
+            $touched = true;
+        }
+
+        if (!$touched) {
+            return $this->jsonError(
+                'Aucun champ à mettre à jour.',
+                'VALIDATION_ERROR',
+                422,
+            );
+        }
+
+        $this->entityManager->flush();
+
+        $after = [
+            'name'     => $tenant->getName(),
+            'timezone' => $tenant->getTimezone(),
+            'country'  => $tenant->getCountry(),
+            'currency' => $tenant->getCurrency(),
+        ];
+
+        $this->auditService->log(
+            actor:   $this->getActor(),
+            tenant:  $tenant,
+            action:  'tenant.updated',
+            payload: ['before' => $before, 'after' => $after],
+            request: $request,
+        );
+
+        return new JsonResponse([
+            'data'    => $this->serializeTenantSummary($tenant),
+            'status'  => 200,
+            'message' => 'OK',
+        ]);
+    }
+
+    /**
+     * POST /superadmin/tenants/{slug}/force-plan — Force un plan
+     * et optionnellement une nouvelle date de fin de période (geste
+     * commercial). Reason obligatoire (audit trail).
+     */
+    #[Route('/tenants/{slug}/force-plan', name: 'tenants_force_plan', methods: ['POST'])]
+    public function forcePlan(string $slug, Request $request): JsonResponse
+    {
+        $tenant = $this->tenantRepository->findBySlug($slug);
+        if ($tenant === null) {
+            return $this->jsonError('Tenant introuvable.', 'NOT_FOUND', 404);
+        }
+
+        $body         = json_decode($request->getContent() ?: '[]', true) ?? [];
+        $planName     = strtoupper(trim((string) ($body['plan'] ?? '')));
+        $reason       = trim((string) ($body['reason'] ?? ''));
+        $newEndRaw    = $body['new_period_end'] ?? null;
+
+        if (!in_array($planName, ['STARTER', 'PRO', 'ENTERPRISE'], true)) {
+            return $this->jsonError('Plan invalide.', 'VALIDATION_ERROR', 422);
+        }
+        if (strlen($reason) < 5) {
+            return $this->jsonError(
+                "La raison du changement est obligatoire (5 caractères minimum).",
+                'VALIDATION_ERROR',
+                422,
+            );
+        }
+
+        $plan = $this->entityManager->getRepository(Plan::class)
+            ->findOneBy(['name' => $planName, 'isActive' => true]);
+        if ($plan === null) {
+            return $this->jsonError("Plan '$planName' introuvable.", 'NOT_FOUND', 404);
+        }
+
+        $newPeriodEnd = null;
+        if (is_string($newEndRaw) && $newEndRaw !== '') {
+            try {
+                $newPeriodEnd = new \DateTimeImmutable(
+                    $newEndRaw,
+                    new \DateTimeZone('Africa/Dakar'),
+                );
+            } catch (\Exception $e) {
+                return $this->jsonError(
+                    'new_period_end invalide (format ISO-8601 attendu).',
+                    'VALIDATION_ERROR',
+                    422,
+                );
+            }
+        }
+
+        $previousSub = $this->subscriptionRepository->findByTenant($tenant);
+        $previousPlan = $previousSub?->getPlan()->getName();
+
+        try {
+            $sub = $this->abonnementService->forcePlan($tenant, $plan, $newPeriodEnd);
+        } catch (BusinessRuleException $e) {
+            return $this->jsonError($e->getMessage(), 'BUSINESS_RULE', 422);
+        }
+
+        $this->auditService->log(
+            actor:   $this->getActor(),
+            tenant:  $tenant,
+            action:  'subscription.force_plan',
+            payload: [
+                'planFrom'      => $previousPlan,
+                'planTo'        => $planName,
+                'newPeriodEnd'  => $sub->getCurrentPeriodEnd()?->format(\DateTimeInterface::ATOM),
+                'reason'        => $reason,
+            ],
+            request: $request,
+        );
+
+        return new JsonResponse([
+            'data'    => $this->serializeTenantSummary($tenant),
+            'status'  => 200,
+            'message' => 'OK',
+        ]);
+    }
+
+    /**
+     * GET /superadmin/audit — Liste paginée des actions SuperAdmin
+     * loggées. Lecture seule, pas d'audit récursif.
+     */
+    #[Route('/audit', name: 'audit', methods: ['GET'])]
+    public function auditList(Request $request): JsonResponse
+    {
+        $page    = max(1, $request->query->getInt('page', 1));
+        $perPage = min(100, max(1, $request->query->getInt('per_page', 20)));
+
+        $result = $this->auditLogRepository->paginate(
+            actor:      $request->query->get('actor'),
+            tenantSlug: $request->query->get('tenant_slug'),
+            action:     $request->query->get('action'),
+            page:       $page,
+            perPage:    $perPage,
+        );
+
+        $data = array_map(fn ($log) => [
+            'id'          => (string) $log->getId(),
+            'actorEmail'  => $log->getActorEmail(),
+            'tenantSlug'  => $log->getTenantSlug(),
+            'action'      => $log->getAction(),
+            'payload'     => $log->getPayload(),
+            'ipAddress'   => $log->getIpAddress(),
+            'userAgent'   => $log->getUserAgent(),
+            'createdAt'   => $log->getCreatedAt()->format(\DateTimeInterface::ATOM),
+        ], $result['data']);
+
+        return new JsonResponse([
+            'data' => $data,
+            'meta' => [
+                'total'   => $result['total'],
+                'page'    => $page,
+                'perPage' => $perPage,
+                'pages'   => $perPage > 0 ? (int) ceil($result['total'] / $perPage) : 0,
+            ],
+            'status'  => 200,
+            'message' => 'OK',
+        ]);
+    }
+
+    private function getActor(): User
+    {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            throw new \LogicException(
+                'SuperAdminController exige un User platform authentifié.',
+            );
+        }
+        return $user;
     }
 
     /**

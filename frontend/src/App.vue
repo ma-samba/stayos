@@ -43,6 +43,8 @@ const allNavItems = [
   { path: '/invoices',      icon: 'ti-file-invoice',     label: 'Facturation',   module: 'billing' },
   { path: '/rates',         icon: 'ti-percentage',       label: 'Tarifs',        module: 'rates' },
   { path: '/housekeeping',  icon: 'ti-spray',            label: 'Ménage',        module: 'housekeeping' },
+  { path: '/staff',         icon: 'ti-users-group',      label: 'Personnel',     module: 'staff' },
+  { path: '/configuration', icon: 'ti-settings',         label: 'Configuration', module: 'configuration' },
   { path: '/subscription',  icon: 'ti-crown',            label: 'Abonnement',    module: 'subscription' },
 ]
 
@@ -63,6 +65,7 @@ function logout(): void {
 const superadminNav = [
   { path: '/superadmin/metrics', icon: 'ti-chart-bar',    label: 'Métriques' },
   { path: '/superadmin/tenants', icon: 'ti-building',     label: 'Tenants' },
+  { path: '/superadmin/audit',   icon: 'ti-history',      label: 'Audit' },
 ]
 
 function gotoSuperAdmin(path: string): void {

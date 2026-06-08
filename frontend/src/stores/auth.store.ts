@@ -71,7 +71,9 @@ export const useAuthStore = defineStore('auth', () => {
     billing:      ['MANAGER', 'RECEPTIONIST', 'ACCOUNTANT'],
     housekeeping: ['MANAGER', 'RECEPTIONIST', 'HOUSEKEEPER'],
     rates:        ['MANAGER'],
+    staff:        ['MANAGER'],
     subscription: ['MANAGER'],
+    configuration: ['MANAGER'],
   }
 
   function canAccess(module: string): boolean {

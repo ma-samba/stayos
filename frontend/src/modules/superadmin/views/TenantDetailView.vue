@@ -20,6 +20,19 @@ const actionLoading        = ref(false)
 const actionError          = ref<string | null>(null)
 const flashMessage         = ref<string | null>(null)
 
+// ── Édition ──
+const editing       = ref(false)
+const editName      = ref('')
+const editTimezone  = ref('')
+const editCountry   = ref('')
+const editCurrency  = ref('')
+
+// ── Force plan ──
+const showForcePlan = ref(false)
+const forcePlanValue       = ref<'STARTER' | 'PRO' | 'ENTERPRISE'>('PRO')
+const forcePlanReason      = ref('')
+const forcePlanPeriodEnd   = ref('')
+
 const STATUS_LABEL: Record<TenantStatus, string> = {
   active:    'Actif',
   trial:     'Essai',
@@ -34,6 +47,13 @@ async function fetchTenant(): Promise<void> {
   error.value   = null
   try {
     tenant.value = await superadminService.getTenant(slug)
+    // Pré-remplir le formulaire d'édition à chaque fetch
+    if (tenant.value) {
+      editName.value     = tenant.value.name
+      editTimezone.value = (tenant.value as unknown as { timezone?: string }).timezone ?? 'Africa/Dakar'
+      editCountry.value  = tenant.value.country
+      editCurrency.value = tenant.value.currency
+    }
   } catch (e: unknown) {
     const status = (e as { response?: { status?: number } }).response?.status
     if (status === 404) {
@@ -44,6 +64,66 @@ async function fetchTenant(): Promise<void> {
     console.error(e)
   } finally {
     loading.value = false
+  }
+}
+
+async function saveEdit(): Promise<void> {
+  if (!tenant.value) return
+  actionLoading.value = true
+  actionError.value   = null
+  try {
+    await superadminService.updateTenant(tenant.value.slug, {
+      name:     editName.value.trim(),
+      timezone: editTimezone.value.trim(),
+      country:  editCountry.value.trim(),
+      currency: editCurrency.value.trim(),
+    })
+    editing.value = false
+    await fetchTenant()
+    flash('Tenant modifié.')
+  } catch (e: unknown) {
+    const resp = (e as { response?: { status?: number; data?: { error?: string } } }).response
+    actionError.value = resp?.data?.error ?? 'Erreur lors de la modification.'
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+function cancelEdit(): void {
+  editing.value     = false
+  actionError.value = null
+  // Re-sync depuis tenant
+  if (tenant.value) {
+    editName.value     = tenant.value.name
+    editCountry.value  = tenant.value.country
+    editCurrency.value = tenant.value.currency
+  }
+}
+
+async function applyForcePlan(): Promise<void> {
+  if (!tenant.value) return
+  if (forcePlanReason.value.trim().length < 5) {
+    actionError.value = 'La raison doit faire au moins 5 caractères.'
+    return
+  }
+  actionLoading.value = true
+  actionError.value   = null
+  try {
+    await superadminService.forcePlan(tenant.value.slug, {
+      plan:           forcePlanValue.value,
+      reason:         forcePlanReason.value.trim(),
+      new_period_end: forcePlanPeriodEnd.value || undefined,
+    })
+    showForcePlan.value      = false
+    forcePlanReason.value    = ''
+    forcePlanPeriodEnd.value = ''
+    await fetchTenant()
+    flash('Plan forcé. Subscription mise à jour.')
+  } catch (e: unknown) {
+    const resp = (e as { response?: { status?: number; data?: { error?: string } } }).response
+    actionError.value = resp?.data?.error ?? 'Erreur lors du changement de plan.'
+  } finally {
+    actionLoading.value = false
   }
 }
 
@@ -153,14 +233,63 @@ onMounted(fetchTenant)
 
         <!-- Informations -->
         <section class="card">
-          <h2 class="sa-section-title">Informations</h2>
-          <dl class="sa-kv">
-            <dt>Slug</dt>           <dd><span class="t-mono">{{ tenant.slug }}</span></dd>
-            <dt>Subdomain</dt>      <dd>{{ tenant.subdomain }}</dd>
-            <dt>Pays</dt>           <dd>{{ tenant.country }}</dd>
-            <dt>Devise</dt>         <dd>{{ tenant.currency }}</dd>
-            <dt>Créé le</dt>        <dd>{{ formatDateTime(tenant.createdAt) }}</dd>
-          </dl>
+          <div class="sa-section-head">
+            <h2 class="sa-section-title">Informations</h2>
+            <button
+              v-if="!editing"
+              class="btn btn-ghost btn-sm"
+              @click="editing = true; actionError = null"
+            >
+              <i class="ti ti-edit"></i> Modifier
+            </button>
+          </div>
+
+          <template v-if="!editing">
+            <dl class="sa-kv">
+              <dt>Nom</dt>            <dd>{{ tenant.name }}</dd>
+              <dt>Slug</dt>           <dd><span class="t-mono">{{ tenant.slug }}</span></dd>
+              <dt>Subdomain</dt>      <dd>{{ tenant.subdomain }}</dd>
+              <dt>Pays</dt>           <dd>{{ tenant.country }}</dd>
+              <dt>Devise</dt>         <dd>{{ tenant.currency }}</dd>
+              <dt>Créé le</dt>        <dd>{{ formatDateTime(tenant.createdAt) }}</dd>
+            </dl>
+          </template>
+
+          <template v-else>
+            <div class="input-wrap">
+              <label class="input-label">Nom</label>
+              <input v-model="editName" class="input" type="text" />
+            </div>
+            <div class="input-wrap">
+              <label class="input-label">Timezone</label>
+              <input v-model="editTimezone" class="input" type="text" />
+            </div>
+            <div style="display:flex; gap:10px;">
+              <div class="input-wrap" style="flex:1;">
+                <label class="input-label">Pays (ISO-2)</label>
+                <input v-model="editCountry" class="input" type="text" maxlength="2" />
+              </div>
+              <div class="input-wrap" style="flex:1;">
+                <label class="input-label">Devise (ISO-3)</label>
+                <input v-model="editCurrency" class="input" type="text" maxlength="3" />
+              </div>
+            </div>
+            <p class="sa-edit-hint">
+              <i class="ti ti-info-circle"></i>
+              Slug et subdomain sont figés pour préserver l'historique et les liens de paiement.
+            </p>
+            <div v-if="actionError" class="sa-error" style="margin-top:8px;">
+              <i class="ti ti-alert-circle"></i> {{ actionError }}
+            </div>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button class="btn btn-primary btn-sm" :disabled="actionLoading" @click="saveEdit">
+                Enregistrer
+              </button>
+              <button class="btn btn-ghost btn-sm" :disabled="actionLoading" @click="cancelEdit">
+                Annuler
+              </button>
+            </div>
+          </template>
         </section>
 
         <!-- Abonnement -->
@@ -251,6 +380,60 @@ onMounted(fetchTenant)
           </template>
         </section>
       </div>
+
+      <!-- Forcer un plan (collapsible) -->
+      <section class="card" style="margin-top:1rem;">
+        <button class="sa-collapsible-toggle" @click="showForcePlan = !showForcePlan">
+          <i :class="showForcePlan ? 'ti ti-chevron-down' : 'ti ti-chevron-right'"></i>
+          <span>Forcer un plan</span>
+          <small class="t-muted" style="margin-left:8px;">— geste commercial, hors processus de paiement</small>
+        </button>
+
+        <div v-if="showForcePlan" class="sa-collapsible-body">
+          <p class="t-muted" style="margin-bottom:1rem;">
+            Force le plan de la subscription active. Aucune facture n'est
+            émise (l'opérateur facture en off). L'action est tracée en clair
+            dans l'audit log avec la raison ci-dessous.
+          </p>
+
+          <div style="display:flex; gap:10px;">
+            <div class="input-wrap" style="flex:1;">
+              <label class="input-label">Nouveau plan</label>
+              <select v-model="forcePlanValue" class="input">
+                <option value="STARTER">Starter</option>
+                <option value="PRO">Pro</option>
+                <option value="ENTERPRISE">Enterprise</option>
+              </select>
+            </div>
+            <div class="input-wrap" style="flex:1;">
+              <label class="input-label">Fin de période (optionnel)</label>
+              <input v-model="forcePlanPeriodEnd" class="input" type="date" />
+            </div>
+          </div>
+
+          <div class="input-wrap">
+            <label class="input-label">Raison (audit, 5 caractères min)</label>
+            <textarea
+              v-model="forcePlanReason"
+              class="input sa-textarea"
+              rows="2"
+              placeholder="Ex : Démo client grand compte X — facturation manuelle Q3."
+            ></textarea>
+          </div>
+
+          <div v-if="actionError" class="sa-error" style="margin-bottom:8px;">
+            <i class="ti ti-alert-circle"></i> {{ actionError }}
+          </div>
+
+          <button
+            class="btn btn-gold"
+            :disabled="actionLoading || forcePlanReason.trim().length < 5"
+            @click="applyForcePlan"
+          >
+            <i class="ti ti-bolt"></i> Forcer ce plan
+          </button>
+        </div>
+      </section>
 
       <!-- Factures SaaS récentes -->
       <section class="card" style="margin-top:1rem;">
@@ -382,6 +565,52 @@ onMounted(fetchTenant)
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin: 0 0 1rem;
+}
+
+.sa-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.sa-section-head .sa-section-title { margin: 0; }
+
+.sa-edit-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--pms-ink-3);
+  margin-top: 4px;
+}
+.sa-edit-hint i { font-size: 14px; margin-top: 1px; }
+
+.sa-collapsible-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--pms-ink);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.sa-collapsible-toggle small {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 12px;
+}
+.sa-collapsible-toggle i { font-size: 16px; }
+
+.sa-collapsible-body {
+  margin-top: 1rem;
 }
 
 .sa-kv {

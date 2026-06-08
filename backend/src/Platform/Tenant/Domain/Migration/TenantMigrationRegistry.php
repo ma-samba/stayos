@@ -11,6 +11,8 @@ use DoctrineMigrations\Tenant\Version20260520160000AddPaymentCallbackSecret;
 use DoctrineMigrations\Tenant\Version20260520170000UpdatePaymentMethodCheck;
 use DoctrineMigrations\Tenant\Version20260524000000CreateRateEntities;
 use DoctrineMigrations\Tenant\Version20260524100000AddReservationPriceBreakdown;
+use DoctrineMigrations\Tenant\Version20260607000000AddStaffInvitations;
+use DoctrineMigrations\Tenant\Version20260608000000HardenFloorsAndAuditConfig;
 
 /**
  * Registre ordonné de toutes les migrations tenant.
@@ -32,6 +34,8 @@ class TenantMigrationRegistry
             new Version20260520170000UpdatePaymentMethodCheck(),
             new Version20260524000000CreateRateEntities(),
             new Version20260524100000AddReservationPriceBreakdown(),
+            new Version20260607000000AddStaffInvitations(),
+            new Version20260608000000HardenFloorsAndAuditConfig(),
         ];
     }
 

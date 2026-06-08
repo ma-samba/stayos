@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import type { RatePlan, RoomType } from '@/types/entities'
 import { rateService } from '@/services/rate.service'
-import { roomService } from '@/services/room.service'
+import { roomTypeService } from '@/services/room.service'
 
 const emit = defineEmits<{
   close: []
@@ -27,7 +27,7 @@ const formError  = ref<string | null>(null)
 
 onMounted(async () => {
   try {
-    roomTypes.value = await roomService.getTypes()
+    roomTypes.value = await roomTypeService.getAll()
   } catch {
     // Non-blocking — select will just be empty
   }

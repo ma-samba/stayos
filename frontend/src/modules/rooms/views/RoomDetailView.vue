@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { roomService } from '@/services/room.service'
+import { roomService, roomTypeService } from '@/services/room.service'
 import type { Room, RoomType, RoomStatus } from '@/types/entities'
 import { formatCurrency } from '@/utils/currency'
 
@@ -42,7 +42,7 @@ async function load(): Promise<void> {
   try {
     const [r, types] = await Promise.all([
       roomService.getOne(route.params.id as string),
-      roomService.getTypes(),
+      roomTypeService.getAll(),
     ])
     room.value      = r
     roomTypes.value = types

@@ -9,6 +9,7 @@ use Symfony\Component\Uid\Uuid;
 
 #[ORM\Entity]
 #[ORM\Table(name: 'room_types')]
+#[ORM\HasLifecycleCallbacks]
 class RoomType
 {
     #[ORM\Id]
@@ -23,6 +24,7 @@ class RoomType
     private string $name;
 
     #[ORM\Column(type: 'text', nullable: true)]
+    #[Groups(['room:read'])]
     private ?string $description = null;
 
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2)]
@@ -34,13 +36,37 @@ class RoomType
     private int $maxOccupancy = 2;
 
     #[ORM\Column(type: 'json', nullable: true)]
+    #[Groups(['room:read'])]
     private ?array $bedConfiguration = null;
 
     #[ORM\Column(type: 'json', nullable: true)]
+    #[Groups(['room:read'])]
     private ?array $amenities = null;
 
     #[ORM\Column(options: ['default' => 0])]
+    #[Groups(['room:read'])]
     private int $sortOrder = 0;
+
+    #[ORM\Column]
+    #[Groups(['room:read'])]
+    private \DateTimeImmutable $createdAt;
+
+    #[ORM\Column]
+    #[Groups(['room:read'])]
+    private \DateTimeImmutable $updatedAt;
+
+    public function __construct()
+    {
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar'));
+        $this->createdAt = $now;
+        $this->updatedAt = $now;
+    }
+
+    #[ORM\PreUpdate]
+    public function onPreUpdate(): void
+    {
+        $this->updatedAt = new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar'));
+    }
 
     public function getId(): Uuid
     {
@@ -122,5 +148,15 @@ class RoomType
     {
         $this->sortOrder = $sortOrder;
         return $this;
+    }
+
+    public function getCreatedAt(): \DateTimeImmutable
+    {
+        return $this->createdAt;
+    }
+
+    public function getUpdatedAt(): \DateTimeImmutable
+    {
+        return $this->updatedAt;
     }
 }
