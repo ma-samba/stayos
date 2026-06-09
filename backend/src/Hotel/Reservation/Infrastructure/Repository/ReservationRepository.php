@@ -152,6 +152,48 @@ class ReservationRepository extends ServiceEntityRepository
     }
 
     /**
+     * Réservations CONFIRMED dont le check-in est prévu à la date donnée.
+     * Utilisé par la checklist night audit (arrivées non enregistrées).
+     *
+     * @return Reservation[]
+     */
+    public function findConfirmedArrivingOn(\DateTimeImmutable $date): array
+    {
+        return $this->createQueryBuilder('r')
+            ->addSelect('g', 'room')
+            ->leftJoin('r.guest', 'g')
+            ->leftJoin('r.room', 'room')
+            ->where('r.status = :status')
+            ->andWhere('r.checkIn = :date')
+            ->setParameter('status', ReservationStatus::CONFIRMED->value)
+            ->setParameter('date', $date->setTime(0, 0))
+            ->orderBy('room.number', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Réservations CHECKED_IN dont le check-out est prévu à la date donnée.
+     * Utilisé par la checklist night audit (départs non enregistrés).
+     *
+     * @return Reservation[]
+     */
+    public function findCheckedInDepartingOn(\DateTimeImmutable $date): array
+    {
+        return $this->createQueryBuilder('r')
+            ->addSelect('g', 'room')
+            ->leftJoin('r.guest', 'g')
+            ->leftJoin('r.room', 'room')
+            ->where('r.status = :status')
+            ->andWhere('r.checkOut = :date')
+            ->setParameter('status', ReservationStatus::CHECKED_IN->value)
+            ->setParameter('date', $date->setTime(0, 0))
+            ->orderBy('room.number', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Génère un numéro de confirmation unique : RES-YYYY-NNNNN
      */
     public function generateConfirmationNumber(): string

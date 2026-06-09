@@ -7,6 +7,8 @@ use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
 use App\Hotel\Housekeeping\Domain\Entity\CleaningTask;
 use App\Hotel\Housekeeping\Domain\Enum\CleaningType;
 use App\Hotel\Housekeeping\Infrastructure\Repository\CleaningTaskRepository;
+use App\Hotel\NightAudit\Domain\Service\BusinessDateService;
+use App\Hotel\NightAudit\Domain\Service\DailyCloseLockChecker;
 use App\Hotel\Property\Domain\Entity\HotelProfile;
 use App\Hotel\Rate\Domain\DTO\PriceQuote;
 use App\Hotel\Rate\Domain\Service\PriceCalculator;
@@ -45,6 +47,8 @@ class ReservationEngine
         private readonly PriceCalculator        $priceCalculator,
         private readonly RatePlanRepository     $ratePlanRepository,
         private readonly PromotionRepository    $promotionRepository,
+        private readonly DailyCloseLockChecker  $closeLockChecker,
+        private readonly BusinessDateService    $businessDateService,
     ) {}
 
     public function create(CreateReservationDTO $dto, ?StaffUser $staff): Reservation
@@ -58,6 +62,10 @@ class ReservationEngine
         $tz = new \DateTimeZone('Africa/Dakar');
         $checkIn = new \DateTimeImmutable($dto->checkIn, $tz);
         $checkOut = new \DateTimeImmutable($dto->checkOut, $tz);
+
+        // Le verrou night audit n'empêche pas la création d'une résa future :
+        // on bloque uniquement la création rétroactive sur des nuits closes.
+        $this->closeLockChecker->assertCanModifyDate($checkIn);
 
         $this->conflictChecker->assertAvailable((string) $room->getId(), $checkIn, $checkOut);
 
@@ -131,6 +139,16 @@ class ReservationEngine
                 'Impossible de modifier une réservation avec le statut "%s".',
                 $reservation->getStatus()
             ));
+        }
+
+        // Verrou night audit : si l'une des nuits actuelles tombe dans une
+        // journée close, modification interdite. Vérification également sur
+        // la nouvelle date d'arrivée si elle change.
+        $this->closeLockChecker->assertCanModifyDate($reservation->getCheckIn());
+        if ($dto->checkIn !== null) {
+            $this->closeLockChecker->assertCanModifyDate(
+                new \DateTimeImmutable($dto->checkIn, new \DateTimeZone('Africa/Dakar'))
+            );
         }
 
         $before = [
@@ -239,6 +257,10 @@ class ReservationEngine
             ));
         }
 
+        // Verrou night audit : annuler une résa dont une nuit tombe dans
+        // une journée close réécrirait du passé comptable → refus.
+        $this->closeLockChecker->assertCanModifyDate($reservation->getCheckIn());
+
         $beforeStatus = $reservation->getStatus();
 
         $reservation->setStatusEnum(ReservationStatus::CANCELLED);
@@ -282,6 +304,12 @@ class ReservationEngine
                 $reservation->getStatus()
             ));
         }
+
+        // Défensif : refuse si la business date courante est déjà close
+        // (ne devrait jamais arriver car on ne peut pas clôturer deux fois).
+        $this->closeLockChecker->assertCanModifyDate(
+            $this->businessDateService->getCurrentBusinessDate()
+        );
 
         $now = new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar'));
 
@@ -328,6 +356,10 @@ class ReservationEngine
                 $reservation->getStatus()
             ));
         }
+
+        $this->closeLockChecker->assertCanModifyDate(
+            $this->businessDateService->getCurrentBusinessDate()
+        );
 
         $now = new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar'));
 

@@ -27,4 +27,39 @@ class PaymentRepository extends ServiceEntityRepository
 
         return $result ? number_format((float) $result, 2, '.', '') : '0.00';
     }
+
+    /**
+     * Somme des paiements PAID pour une date donnée, groupée par méthode.
+     *
+     * Filtre simple V1 : DATE(paidAt) = $date (timezone du serveur).
+     * Un paiement enregistré en pleine nuit avant le cutoff sera donc
+     * comptabilisé sur la date civile, pas sur la business date — limite
+     * V1, à durcir si nécessaire.
+     *
+     * @return array<string, string> ex: ['wave' => '125000.00', 'cash' => '10000.00']
+     */
+    public function sumPaidByMethodForDate(\DateTimeImmutable $date): array
+    {
+        $start = $date->setTime(0, 0, 0);
+        $end   = $start->modify('+1 day');
+
+        $rows = $this->createQueryBuilder('p')
+            ->select('p.method AS method, SUM(p.amountXof) AS total')
+            ->where('p.status = :status')
+            ->andWhere('p.paidAt >= :start')
+            ->andWhere('p.paidAt < :end')
+            ->setParameter('status', 'paid')
+            ->setParameter('start', $start)
+            ->setParameter('end', $end)
+            ->groupBy('p.method')
+            ->getQuery()
+            ->getArrayResult();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $result[$row['method']] = number_format((float) ($row['total'] ?? 0), 2, '.', '');
+        }
+
+        return $result;
+    }
 }

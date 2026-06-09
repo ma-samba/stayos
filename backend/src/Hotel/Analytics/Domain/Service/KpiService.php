@@ -17,17 +17,31 @@ class KpiService
     ) {}
 
     /**
-     * KPIs du jour (Africa/Dakar).
+     * KPIs du jour (Africa/Dakar). Délégué à dashboardForDate(today).
      */
     public function dashboardToday(): DashboardKpis
     {
         $tz    = new \DateTimeZone('Africa/Dakar');
         $today = new \DateTimeImmutable('today', $tz);
 
+        return $this->dashboardForDate($today);
+    }
+
+    /**
+     * KPIs pour une date donnée. Mêmes calculs que dashboardToday mais
+     * paramétrés — utilisé notamment par le night audit pour figer
+     * un snapshot. Les `availableRooms` et `occupiedRooms` reflètent
+     * l'état courant des chambres (V1 : pas de reconstruction
+     * historique), ce qui est acceptable pour J ou J-1.
+     */
+    public function dashboardForDate(\DateTimeImmutable $date): DashboardKpis
+    {
+        $date = $date->setTime(0, 0);
+
         $availableRooms = $this->analyticsRepository->countActiveAvailableRooms();
-        $reservations   = $this->analyticsRepository->reservationsIntersectingPeriod($today, $today);
-        $arrivals       = $this->analyticsRepository->arrivalsForDay($today);
-        $departures     = $this->analyticsRepository->departuresForDay($today);
+        $reservations   = $this->analyticsRepository->reservationsIntersectingPeriod($date, $date);
+        $arrivals       = $this->analyticsRepository->arrivalsForDay($date);
+        $departures     = $this->analyticsRepository->departuresForDay($date);
 
         // Nuits disponibles pour un seul jour = nombre de chambres
         $nightsAvailable = $availableRooms;
@@ -38,7 +52,7 @@ class KpiService
         $revenueTtc    = '0.00';
 
         foreach ($reservations as $reservation) {
-            $nightsInPeriod = $this->nightsInPeriod($reservation, $today, $today);
+            $nightsInPeriod = $this->nightsInPeriod($reservation, $date, $date);
             if ($nightsInPeriod <= 0) {
                 continue;
             }
@@ -64,8 +78,8 @@ class KpiService
             $revenueHt = bcadd($revenueHt, $prorataHt, 2);
         }
 
-        // Chambres actuellement occupées = statut OCCUPIED
-        $occupiedRooms = $this->countOccupiedRooms($reservations, $today);
+        // Chambres "occupées sur ce jour" = réservations checked_in couvrant la date
+        $occupiedRooms = $this->countOccupiedRooms($reservations, $date);
 
         $occupancyRate = $this->calcOccupancyRate($nightsSold, $nightsAvailable);
         $adr           = $this->calcAdr($revenueHt, $nightsSold);

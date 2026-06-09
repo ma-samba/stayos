@@ -128,6 +128,20 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Configuration', module: 'configuration' },
   },
 
+  // ── Night Audit (réceptionniste + manager) ── Sprint 13quater
+  {
+    path: '/night-audit',
+    name: 'night-audit',
+    component: () => import('@/modules/night-audit/views/NightAuditView.vue'),
+    meta: { requiresAuth: true, title: 'Clôture journalière', module: 'night_audit' },
+  },
+  {
+    path: '/night-audit/:id',
+    name: 'night-audit-detail',
+    component: () => import('@/modules/night-audit/views/NightAuditDetailView.vue'),
+    meta: { requiresAuth: true, title: 'Détail clôture', module: 'night_audit' },
+  },
+
   // ── Personnel (manager only) ──
   {
     path: '/staff',

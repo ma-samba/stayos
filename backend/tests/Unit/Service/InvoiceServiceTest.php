@@ -11,6 +11,8 @@ use App\Hotel\Billing\Domain\Enum\InvoiceStatus;
 use App\Hotel\Billing\Domain\Enum\PaymentStatus;
 use App\Hotel\Billing\Domain\Service\InvoiceService;
 use App\Hotel\Guest\Domain\Entity\Guest;
+use App\Hotel\NightAudit\Domain\Service\BusinessDateService;
+use App\Hotel\NightAudit\Domain\Service\DailyCloseLockChecker;
 use App\Hotel\Reservation\Domain\Entity\Reservation;
 use App\Hotel\Shared\Domain\Service\AuditService;
 use App\Platform\Auth\Domain\Entity\StaffUser;
@@ -39,11 +41,19 @@ class InvoiceServiceTest extends TestCase
         $twig          = $this->createMock(Twig::class);
         $logger        = new NullLogger();
 
+        $lockChecker         = $this->createMock(DailyCloseLockChecker::class);
+        $businessDateService = $this->createMock(BusinessDateService::class);
+        $businessDateService->method('getCurrentBusinessDate')->willReturn(
+            new \DateTimeImmutable('today', new \DateTimeZone('Africa/Dakar'))
+        );
+
         $this->service = new InvoiceService(
             $this->em,
             $this->audit,
             $this->mercure,
             $twig,
+            $lockChecker,
+            $businessDateService,
             $logger,
         );
         $this->staff   = $this->createMock(StaffUser::class);

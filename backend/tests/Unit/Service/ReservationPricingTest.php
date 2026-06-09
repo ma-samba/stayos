@@ -8,6 +8,8 @@ use App\Hotel\Billing\Infrastructure\Repository\InvoiceRepository;
 use App\Hotel\Guest\Domain\Entity\Guest;
 use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
 use App\Hotel\Housekeeping\Infrastructure\Repository\CleaningTaskRepository;
+use App\Hotel\NightAudit\Domain\Service\BusinessDateService;
+use App\Hotel\NightAudit\Domain\Service\DailyCloseLockChecker;
 use App\Hotel\Property\Domain\Entity\HotelProfile;
 use App\Hotel\Rate\Domain\Entity\Promotion;
 use App\Hotel\Rate\Domain\Entity\SeasonalRate;
@@ -79,6 +81,11 @@ class ReservationPricingTest extends TestCase
 
         $priceCalculator = new PriceCalculator($this->seasonalRepo, $this->promotionRepo);
 
+        $businessDateService = $this->createMock(BusinessDateService::class);
+        $businessDateService->method('getCurrentBusinessDate')->willReturn(
+            new \DateTimeImmutable('today', new \DateTimeZone('Africa/Dakar'))
+        );
+
         $this->engine = new ReservationEngine(
             $this->reservationRepo,
             $this->roomRepo,
@@ -93,6 +100,8 @@ class ReservationPricingTest extends TestCase
             $priceCalculator,
             $this->ratePlanRepo,
             $this->promotionRepo,
+            $this->createMock(DailyCloseLockChecker::class),
+            $businessDateService,
         );
     }
 

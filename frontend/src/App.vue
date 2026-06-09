@@ -41,6 +41,7 @@ const allNavItems = [
   { path: '/guests',        icon: 'ti-users',            label: 'Clients',       module: 'guests' },
   { path: '/reservations',  icon: 'ti-calendar',         label: 'Réservations',  module: 'reservations' },
   { path: '/invoices',      icon: 'ti-file-invoice',     label: 'Facturation',   module: 'billing' },
+  { path: '/night-audit',   icon: 'ti-moon-stars',       label: 'Clôture journalière', module: 'night_audit' },
   { path: '/rates',         icon: 'ti-percentage',       label: 'Tarifs',        module: 'rates' },
   { path: '/housekeeping',  icon: 'ti-spray',            label: 'Ménage',        module: 'housekeeping' },
   { path: '/staff',         icon: 'ti-users-group',      label: 'Personnel',     module: 'staff' },

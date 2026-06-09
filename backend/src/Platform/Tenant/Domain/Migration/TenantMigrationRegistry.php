@@ -13,6 +13,7 @@ use DoctrineMigrations\Tenant\Version20260524000000CreateRateEntities;
 use DoctrineMigrations\Tenant\Version20260524100000AddReservationPriceBreakdown;
 use DoctrineMigrations\Tenant\Version20260607000000AddStaffInvitations;
 use DoctrineMigrations\Tenant\Version20260608000000HardenFloorsAndAuditConfig;
+use DoctrineMigrations\Tenant\Version20260610000000CreateDailyCloses;
 
 /**
  * Registre ordonné de toutes les migrations tenant.
@@ -36,6 +37,7 @@ class TenantMigrationRegistry
             new Version20260524100000AddReservationPriceBreakdown(),
             new Version20260607000000AddStaffInvitations(),
             new Version20260608000000HardenFloorsAndAuditConfig(),
+            new Version20260610000000CreateDailyCloses(),
         ];
     }
 

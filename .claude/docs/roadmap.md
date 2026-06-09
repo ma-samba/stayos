@@ -5,21 +5,22 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **Sprint 14 — Production-ready (sécurité, déploiement, monitoring)**
+- Sprint courant : **Sprint 13quinquies — Corrections financières (no-show, refund, politique d'annulation)**
 - Dernière mise à jour : 9 juin 2026
-- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 13bis, 13ter
+- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 13bis, 13ter, 13quater
 
 ---
 
-## Vue d'ensemble — 16 sprints (~16 semaines)
+## Vue d'ensemble — 17 sprints (~17 semaines)
 
 ```
-Phase 1 — Fondations      (S1–S3)     : Infrastructure, Auth, BDD
-Phase 2 — Core métier     (S4–S7)     : Chambres, Réservations, Clients, Facturation
-Phase 3 — Opérations      (S8–S9)     : Housekeeping, Tarifs
-Phase 4 — Intelligence    (S10–S11)   : Dashboard, Temps réel
-Phase 5 — SaaS            (S12–S13ter): Abonnements, SuperAdmin, gestion personnel, config hôtel
-Phase 6 — Production      (S14)       : Sécurité finale, déploiement
+Phase 1 — Fondations      (S1–S3)            : Infrastructure, Auth, BDD
+Phase 2 — Core métier     (S4–S7)            : Chambres, Réservations, Clients, Facturation
+Phase 3 — Opérations      (S8–S9)            : Housekeeping, Tarifs
+Phase 4 — Intelligence    (S10–S11)          : Dashboard, Temps réel
+Phase 5 — SaaS            (S12–S13quinquies) : Abonnements, SuperAdmin, gestion personnel,
+                                               config hôtel, night audit, corrections financières
+Phase 6 — Production      (S14)              : Sécurité finale, déploiement
 ```
 
 ---
@@ -1084,6 +1085,212 @@ réparation des schemas tenant.
 
 ---
 
+### ✅ Sprint 13quater — Night audit (clôture comptable journalière)
+**Objectif** : combler un manque produit fondamental — StayOS
+n'avait aucune notion de clôture de journée (standard de
+l'industrie hôtelière Opera, Mews, Cloudbeds). Périmètre :
+- Workflow de clôture avec verrouillage comptable
+- Snapshot JSON immutable des chiffres figés
+- Génération PDF de la liasse standard
+- UI réceptionniste dédiée
+
+⚠️ Décision validée : business date avec heure de bascule
+configurable par tenant (défaut 5h matin), séquentialité
+obligatoire, verrou métier qui refuse toute modif d'opération
+en journée close (corrections via opérations datées du jour
+courant), MANAGER seul à pouvoir rouvrir avec raison ≥ 5 chars
+obligatoire.
+
+**Backend — Fondations [13quater-A]**
+- [x] Migration tenant `Version20260610000000CreateDailyCloses`
+  enregistrée dans `TenantMigrationRegistry`. Table avec UNIQUE
+  INDEX sur `business_date`, INDEX DESC sur `closed_at`.
+  Snapshot persisté en `jsonb`. Reopen tracé via colonnes
+  séparées (`reopened_at`, `reopened_by_email`, `reopen_reason`).
+- [x] `Tenant::getBusinessDayCutoffHour()` / `setBusinessDayCutoffHour()`
+  — stockage dans `settings` JSON nullable, validation 0-23,
+  défaut 5h. Pas de migration nécessaire (utilise le JSON
+  existant).
+- [x] Entité `DailyClose` + `DailyCloseRepository` —
+  `findByBusinessDate`, `findLatest`, `findLatestEffective`
+  (WHERE `reopened_at IS NULL`), `paginate`, `countAll`.
+- [x] `BusinessDateService` — calcule la business date courante
+  selon `cutoffHour` configuré, refactor `resolve()` privée
+  partagée entre `getCurrentBusinessDate()` et
+  `toBusinessDate($instant)`. Reconstruction explicite à minuit
+  dans la TZ tenant pour gérer DST.
+- [x] `DailyCloseLockChecker::assertCanModifyDate()` — message
+  FR explicite, bypass si pas de close, bypass si dernière
+  close rouverte.
+- [x] `DailyCloseService` — `getCurrent` (status + canClose +
+  séquentialité), `close($actor, $force=false)` (validation
+  séquentielle + snapshot + persistance + audit + logger),
+  `reopen($close, $actor, $reason)` avec sécurité "seule la
+  dernière effective peut être rouverte" via UUID `equals`.
+- [x] `KpiService::dashboardForDate($date)` — extension pour
+  permettre le calcul historique ; `dashboardToday()` devient
+  wrapper.
+- [x] Câblage du verrou métier dans `ReservationEngine` :
+  `create` (date checkIn, autorise futur), `update` (double
+  check ancienne + nouvelle date), `cancel`, `checkIn`,
+  `checkOut`.
+- [x] Câblage du verrou dans `InvoiceService::issue` et
+  `recordPayment`. Commentaire explicite : un paiement
+  d'aujourd'hui sur facture passée close est autorisé car
+  c'est le geste corrigeant du jour.
+- [x] `NightAuditController` — `GET /current`, `POST /close`,
+  `GET /` (paginé), `GET /{id}`, `POST /{id}/reopen` (MANAGER
+  strict via override `IsGranted`).
+
+**Backend — Checklist + PDF [13quater-B]**
+- [x] `NightAuditChecklistService` — 4 warnings détectés :
+  `arrivals.pending` (CONFIRMED arrivant aujourd'hui non
+  checked-in), `departures.pending` (CHECKED_IN partant
+  aujourd'hui non checked-out), `invoices.draft` (drafts
+  pour résas checked-out aujourd'hui), `rooms.orphan_occupied`
+  (rooms OCCUPIED sans résa active). Helper `truncate()` avec
+  constante `DETAILS_MAX=10`.
+- [x] `DailyCloseService::close()` étendu avec flag `$force`
+  (défaut `false`). Si warnings et `!$force` → 422. Si forcé,
+  warnings persistés dans `snapshot['warnings']` pour
+  traçabilité long-terme. Audit log enrichi avec
+  `warningsCount` + `forced`.
+- [x] `NightAuditPdfService::generate(DailyClose)` — pattern
+  Dompdf identique à `InvoiceService::generatePdf`. PDF
+  régénéré à chaque appel à partir du snapshot immutable
+  (invariant documenté).
+- [x] Template Twig `night_audit/daily_close_pdf.html.twig` —
+  pas de `@page` CSS (respect du backlog Dompdf html5parser),
+  wrapper `.page` avec padding pour marges. Sections :
+  en-tête + bannières "RÉOUVERT" / "FORCÉE", KPIs, activité
+  du jour, caisse par méthode, factures avec TVA approximative,
+  état chambres (tronqué à 50 + "et X autres"), warnings
+  détaillés, footer. Lecture défensive du snapshot via
+  `|default(...)` partout.
+- [x] Endpoints ajoutés : `GET /checklist`, `GET /{id}/pdf`
+  (Content-Type pdf, attachment, `Cache-Control: no-store`).
+- [x] Tests étendus : `testCloseRefusedWhenWarningsAndNotForced`,
+  `testCloseWithForceAcceptsWarnings`,
+  `testChecklistEndpointReturnsWarnings`,
+  `testPdfEndpointReturnsBinary` (vérification magic bytes
+  `%PDF-` + taille > 1000), et surtout
+  `testReopenedCloseDoesNotEnforceLock` (E2E : close → tenter
+  modif refusée → reopen → modif acceptée).
+- [x] Tests `LockedDayPreventsModificationTest` complétés :
+  `testCannotUpdatePastReservationOnClosedDay`,
+  `testCannotCancelPastReservationOnClosedDay`,
+  `testCheckInDoesNotFireLockWhenTodayIsNotClosed` (vérification
+  d'absence de faux positif via
+  `assertStringNotContainsString('clôturée')`),
+  `testCanRecordPaymentTodayWhenTodayIsNotClosed`.
+
+**Frontend [13quater-C]**
+- [x] `MODULE_ACCESS.night_audit = ['RECEPTIONIST', 'MANAGER']`,
+  entrée sidebar "Clôture journalière" avec icône
+  `ti-moon-stars`.
+- [x] Types `night-audit.ts` (NightAuditCurrent, Warning,
+  Checklist, DailyClose, Snapshot, DailyCloseListResponse).
+- [x] Service `night-audit.service.ts` — méthodes get/list/
+  close/reopen + `downloadPdf` avec `responseType: 'blob'` et
+  `URL.revokeObjectURL` dans `finally`.
+- [x] `NightAuditView.vue` — chargement parallèle (current +
+  checklist + history) via `Promise.all`, 3 états visuels
+  (déjà clôturée / bloquée / active), historique paginé avec
+  badges "Effective" / "Rouverte", boutons download PDF +
+  voir détail. `pushUiToast('alert'/'success')` partout.
+- [x] `NightAuditDetailView.vue` — bannières "RÉOUVERTE" et
+  "FORCÉE", bouton "Réouvrir" masqué côté UI si
+  `auth.userRole !== 'MANAGER'` + garde-fou serveur 403
+  converti en toast.
+- [x] `SnapshotDisplay.vue` — 6 cards (KPIs, activité, caisse,
+  factures, chambres, warnings). Lecture défensive `??`
+  partout. `fmtXof` avec `Intl.NumberFormat('fr-FR')` (espaces
+  fines). Grid responsive 4 → 2 cols mobile. Badges par
+  status cohérents avec PDF.
+- [x] `WarningList.vue` — cards dépliables (mode `dense` qui
+  force ouvert + masque chevron), `formatDetail` switch par
+  code de warning avec fallback `JSON.stringify`.
+- [x] `ConfirmCloseModal.vue` — message adapté selon présence
+  de warnings, récap warnings en `dense=true` si présents,
+  bouton "Confirmer la clôture" ou "Confirmer la clôture
+  forcée".
+- [x] `ReopenModal.vue` — validation client `trim() >= 5`
+  chars cohérente avec serveur, char counter live, reset
+  après close pour éviter persistance entre ouvertures.
+
+**Ajouts notables (Sprint 13quater) — décisions et apprentissages**
+- [x] **Décision « business date avec cutoff configurable »** :
+  défaut 5h matin, paramétrable par tenant via
+  `settings['business_day_cutoff_hour']`. Un check-out à 02h
+  reste comptabilisé sur la veille. Gestion DST via
+  reconstruction explicite à minuit dans la TZ tenant.
+- [x] **Décision « snapshot immutable »** : tous les chiffres
+  d'une close sont figés en JSON au moment de la clôture. Le
+  PDF est régénéré à chaque appel mais à partir du snapshot,
+  jamais recalculé. Garantit la cohérence du document même
+  après reopen/reclose.
+- [x] **Décision « séquentialité obligatoire »** : pas de
+  clôture J si J-1 pas clos. Sinon trous comptables. Si oubli
+  de plusieurs jours, l'administrateur doit reprendre dans
+  l'ordre.
+- [x] **Décision « warnings non bloquants + force flag »** :
+  les 4 warnings (arrivals.pending, departures.pending,
+  invoices.draft, rooms.orphan_occupied) bloquent la close
+  par défaut mais le réceptionniste peut forcer via
+  `force: true` après confirmation UI. Les warnings forcés
+  sont persistés dans le snapshot pour traçabilité.
+- [x] **Décision « reopen MANAGER strict + reason ≥ 5 chars »** :
+  seule la dernière close effective peut être rouverte (sinon
+  trous séquence). MANAGER strict, RECEPTIONIST refusé en 403.
+- [x] **Décision « PDF généré à la demande »** : pas de
+  stockage, régénération depuis le snapshot immutable.
+  `Cache-Control: no-store` pour ne pas cacher côté navigateur.
+
+**Livrable** : un PMS qui supporte le workflow standard de
+clôture comptable journalière. Le réceptionniste peut clôturer
+sa journée en fin de service, télécharger la liasse PDF, et la
+journée close est verrouillée contre toute modification
+rétroactive. Si une correction s'avère nécessaire, le manager
+peut rouvrir la close avec raison tracée, et toute modification
+reste visible dans le snapshot et l'audit log.
+
+⚠️ **Manques métier critiques découverts** (ouvrent le Sprint
+13quinquies) :
+- **No-show** : l'enum existe mais aucune action service/API/UI.
+  Le warning `arrivals.pending` du night audit recommande
+  "Marquez no-show" sans qu'on puisse le faire.
+- **Refund / avoir** : `PaymentStatus` n'a pas de `REFUNDED`,
+  aucune sortie de caisse négative ni de credit note.
+
+---
+
+### ⬜ Sprint 13quinquies — Corrections financières
+**Objectif** : combler les manques métier identifiés à la
+clôture du 13quater. Un PMS ne peut pas aller en prod sans
+ces mécanismes. Périmètre prévisionnel (à arbitrer) :
+- **No-show** : action `markNoShow` côté manager/réceptionniste,
+  facturation configurable (rien / 1ère nuit / total),
+  intégration au warning `arrivals.pending` du night audit.
+- **Refund / remboursement** : statut `REFUNDED` sur Payment,
+  service de remboursement avec audit obligatoire, sortie de
+  caisse négative tracée.
+- **Politique d'annulation** : frais d'annulation selon
+  préavis (gratuit > 48 h, 1 nuit retenue 24-48 h, total < 24 h
+  par défaut, configurable par tenant). À arbitrer : inclure
+  ou reporter en V2 ?
+
+Le prompt principal arbitrera : (a) politique no-show par
+tenant ou cas par cas, (b) refund minimaliste (paiement
+négatif tracé) ou complet (credit note), (c) frais
+d'annulation inclus ou reportés.
+
+**Livrable** : un PMS qui sait traiter les écarts financiers
+courants — clients absents (no-show), remboursements partiels
+ou totaux, et annulations avec frais conformes à une politique
+explicite. Bloquant avant le passage en prod.
+
+---
+
 ### ⬜ Sprint 14 — Production-ready
 **Objectif** : app blindée, performante, déployée Heroku + Vercel + RDS.
 
@@ -1115,8 +1322,10 @@ réparation des schemas tenant.
 | SaaS | S12–S13 | 2 semaines | Monétisation + supervision |
 | SaaS (suite) | S13bis | 1 semaine | Complétion opérationnelle (personnel + back-office) |
 | SaaS (suite) | S13ter | 1 semaine | Configuration hôtel manager + templates seed |
+| SaaS (suite) | S13quater | 1 semaine | Night audit / clôture comptable journalière |
+| SaaS (suite) | S13quinquies | ~1 semaine | Corrections financières (no-show, refund, annulation) |
 | Production | S14 | 1 semaine | Déploiement + sécurité finale |
-| **Total** | **16 sprints** | **~16 semaines** | **App production-ready** |
+| **Total** | **17 sprints** | **~17 semaines** | **App production-ready** |
 
 ---
 
@@ -1266,6 +1475,64 @@ après les 16 sprints initiaux ou à intégrer dans un sprint dédié.
   les DEUX vues (liste + détail) où il peut apparaître. Idéal :
   un helper `canMutate(item)` partagé entre liste et détail
   pour ne jamais désynchroniser.
+- **TVA calculée en float dans le template PDF night audit**
+  (priorité basse, Sprint 13quater-B) : le template Twig fait
+  `totalTtc / 1.18 * 0.18` en float alors que tout le backend
+  utilise bcmath. Imprécision possible à 1-2 centimes près
+  sur de gros volumes. Fix : stocker `vatXof` directement
+  dans `snapshot.invoices` via bcmath au moment de la close,
+  pour que le PDF et l'UI lisent une valeur précalculée et
+  cohérente avec la facturation.
+- **Cutoff hardcodé "5 h" dans NightAuditView**
+  (priorité moyenne, Sprint 13quater-C) : la sub-card
+  "Cutoff configuré : 5 h" est codée en dur côté frontend
+  alors que la valeur est configurable par tenant dans
+  `Tenant.settings['business_day_cutoff_hour']`. Si un tenant
+  reconfigure son cutoff, l'UI affichera toujours 5 h.
+  Fix : exposer la valeur réelle dans le payload
+  `GET /api/night-audit/current` (ou un endpoint
+  `/tenant/settings`) et l'afficher dynamiquement côté UI.
+- **`lastEffectiveClose` dépendant de la pagination**
+  (priorité basse, Sprint 13quater-C) : `NightAuditView` lit
+  `history.data[0]` pour pointer vers la close courante depuis
+  le statut "déjà clôturée". Si l'utilisateur a paginé sur
+  page 2+, le bouton "Voir le détail" pointerait vers une
+  close plus ancienne, pas celle d'aujourd'hui. Fix : exposer
+  `lastCloseId` dans le payload `GET /current` côté backend,
+  ou charger explicitement la `findLatestEffective()` côté
+  frontend indépendamment de la pagination de l'historique.
+
+### Mécanismes métier manquants
+Manques fonctionnels structurels identifiés en cours de
+livraison — souvent des concepts existants (enums, statuts)
+mais sans logique de service ni d'UI. Justifient des sprints
+dédiés plutôt qu'un fix ponctuel.
+
+- 🔴 **No-show non implémenté** (priorité HAUTE — Sprint 13quinquies) :
+  enum `ReservationStatus::NO_SHOW` existe depuis le Sprint 5
+  mais aucune méthode service, aucun endpoint, aucun bouton
+  UI. Pire : le warning `arrivals.pending` du night audit
+  livré au 13quater-B affiche explicitement "Marquez no-show
+  si le client n'est pas venu" alors qu'aucun moyen n'existe
+  pour le faire. À traiter au S13quinquies avec arbitrage
+  de la politique de facturation associée (rien / 1ère nuit /
+  total) et intégration au warning du night audit.
+- 🔴 **Refund non implémenté** (priorité HAUTE — Sprint 13quinquies) :
+  `PaymentStatus` n'a pas de cas `REFUNDED`. Aucune logique
+  de remboursement, d'avoir (credit note), ou de sortie de
+  caisse négative. Indispensable pour la prod — tout PMS
+  doit savoir tracer un remboursement client (annulation
+  tardive, geste commercial, double facturation). À traiter
+  au S13quinquies avec arbitrage minimaliste (paiement
+  négatif tracé) vs complet (credit note dédiée).
+- ⬜ **Politique d'annulation tardive** (priorité moyenne —
+  S13quinquies ou V2) : aujourd'hui `ReservationEngine::cancel`
+  annule sans contrainte ni frais. Une vraie politique
+  implique des frais d'annulation selon le préavis (gratuit
+  > 48 h, 1 nuit retenue 24-48 h, total < 24 h par défaut,
+  configurable par tenant). À arbitrer dans le S13quinquies :
+  inclure dès maintenant (cohérent avec le refund) ou
+  reporter en V2.
 
 ### Plateforme & onboarding
 - **Transactionnaliser `OnboardingService::register/provision`**
@@ -1452,6 +1719,19 @@ après les 16 sprints initiaux ou à intégrer dans un sprint dédié.
   `noUnusedLocals`, `noImplicitAny`, `strict: true`. Ajouter
   un step `tsc --noEmit` dans la CI — c'est ce qui aurait
   attrapé la régression au build.
+- **Tests E2E sur cancel/checkIn/checkOut avec verrou actif**
+  (priorité basse, Sprint 13quater-B) :
+  `LockedDayPreventsModificationTest` couvre désormais
+  `create`, `update` et `cancel` quand la date concernée
+  appartient à une journée close. Les chemins `checkIn` et
+  `checkOut` sont testés indirectement par
+  `testCheckInDoesNotFireLockWhenTodayIsNotClosed` (vérifie
+  l'absence de faux positif via
+  `assertStringNotContainsString('clôturée')`). Un test
+  direct du déclenchement du verrou sur `checkIn` quand la
+  business date courante est hypothétiquement close (cas
+  dégénéré qui ne devrait jamais arriver vu la séquentialité)
+  manque. Acceptable en V1.
 
 #### Deprecations PHP/Symfony (priorité basse)
 - **`StaffUser::eraseCredentials()`** à annoter `#[\Deprecated]` —
@@ -1610,3 +1890,51 @@ ce ne sont pas des tickets mais des réflexes à appliquer.
   la vue détail, il ne doit PAS l'être non plus dans la vue
   liste. Idéal : un helper `canMutate(item)` partagé entre
   liste et détail pour ne jamais désynchroniser.
+- **Snapshot JSON immutable vs recalcul** (Sprint 13quater) :
+  pour les données comptables / audit (clôture journalière,
+  facture émise, audit log, contrat employé), on FIGE les
+  chiffres dans un JSON au moment de l'écriture, et on les
+  LIT sans recalculer. Ça garantit la cohérence du document
+  même si les données sources changent après (mise à jour de
+  tarif, modification d'une chambre, suppression d'un staff).
+  Le PDF du night audit est régénéré à chaque appel MAIS à
+  partir du `snapshot` immutable, jamais de la BDD courante.
+  Le `Cache-Control: no-store` côté réponse HTTP empêche le
+  cache navigateur de masquer une donnée corrigée. Pattern à
+  reproduire : pour les factures (déjà fait au S7 via
+  `Invoice.lines` figées), les bulletins de paie staff, les
+  attestations, et toute donnée signée / validée à un instant
+  T qui doit rester reproductible.
+- **Business date séparée de la date civile** (Sprint 13quater) :
+  l'hôtellerie a une notion de "journée d'exploitation" qui
+  ne correspond pas exactement à minuit civil. Un check-out
+  à 02h du mat appartient comptablement à la veille (le
+  client a dormi cette nuit-là). La configurabilité du cutoff
+  par tenant (`settings['business_day_cutoff_hour']`, défaut
+  5h) permet d'adapter selon le profil hôtelier — un palace
+  parisien avec restaurant tardif n'a pas le même cutoff
+  qu'un motel africain. Pattern à généraliser : si une
+  industrie a une convention temporelle métier qui ne suit
+  pas le calendrier civil (exercice fiscal qui ne commence
+  pas au 1er janvier, semaine commerciale qui démarre le
+  lundi, période de paie qui finit le 25, etc.), il faut
+  séparer dès la conception via un service
+  `BusinessXxxService` qui fait le pont (`BusinessDateService`,
+  `BusinessMonthService`...) plutôt que d'appliquer un offset
+  ad hoc à chaque appel. Toute la TZ tenant doit aussi être
+  reconstruite explicitement à la frontière (`new
+  DateTimeImmutable('Y-m-d 00:00:00', $tenantTz)`) pour gérer
+  DST sans surprise.
+- **Cohérence backend/frontend des calculs de précision**
+  (Sprint 13quater, remarque mineure) : si le backend utilise
+  bcmath pour la précision XOF (DECIMAL(10,2) en BDD), les
+  rendus côté frontend (UI ou template PDF généré
+  server-side) doivent utiliser la même précision. Sinon
+  imprécisions à 1-2 centimes près qui peuvent surprendre
+  un comptable. Exemple du PDF night audit : la TVA est
+  calculée en Twig float (`totalTtc / 1.18 * 0.18`) alors
+  que tout le backend est en bcmath. Pattern à généraliser :
+  **précalculer les valeurs dérivées dans les snapshots /
+  réponses API** plutôt que de laisser le frontend ou un
+  template les recalculer. Le client ne devrait jamais
+  reproduire une logique métier comptable.

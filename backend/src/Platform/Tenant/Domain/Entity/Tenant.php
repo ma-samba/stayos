@@ -162,6 +162,29 @@ class Tenant
         return $this;
     }
 
+    /**
+     * Heure (locale au tenant) à laquelle bascule la "business date".
+     * Stockée dans settings['business_day_cutoff_hour'], défaut 5h.
+     */
+    public function getBusinessDayCutoffHour(): int
+    {
+        return (int) ($this->settings['business_day_cutoff_hour'] ?? 5);
+    }
+
+    public function setBusinessDayCutoffHour(int $hour): self
+    {
+        if ($hour < 0 || $hour > 23) {
+            throw new \InvalidArgumentException(
+                'business_day_cutoff_hour doit être un entier entre 0 et 23.'
+            );
+        }
+        $settings = $this->settings ?? [];
+        $settings['business_day_cutoff_hour'] = $hour;
+        $this->settings = $settings;
+
+        return $this;
+    }
+
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;

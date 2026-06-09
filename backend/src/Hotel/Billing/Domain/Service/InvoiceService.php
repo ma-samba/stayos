@@ -10,6 +10,8 @@ use App\Hotel\Billing\Domain\Entity\Payment;
 use App\Hotel\Billing\Domain\Enum\InvoiceStatus;
 use App\Hotel\Billing\Domain\Enum\PaymentMethod;
 use App\Hotel\Billing\Domain\Enum\PaymentStatus;
+use App\Hotel\NightAudit\Domain\Service\BusinessDateService;
+use App\Hotel\NightAudit\Domain\Service\DailyCloseLockChecker;
 use App\Hotel\Property\Domain\Entity\HotelProfile;
 use App\Shared\Exception\BusinessRuleException;
 use App\Hotel\Shared\Domain\Service\AuditService;
@@ -29,6 +31,8 @@ class InvoiceService
         private readonly AuditService            $auditService,
         private readonly MercurePublisher        $mercurePublisher,
         private readonly Twig                    $twig,
+        private readonly DailyCloseLockChecker   $closeLockChecker,
+        private readonly BusinessDateService     $businessDateService,
         #[Target('business')] private readonly LoggerInterface $logger,
     ) {}
 
@@ -40,6 +44,13 @@ class InvoiceService
         if ($invoice->getStatusEnum() !== InvoiceStatus::DRAFT) {
             throw new BusinessRuleException('Seule une facture draft peut être émise.');
         }
+
+        // Verrou night audit : pas d'émission rétroactive sur une réservation
+        // dont une nuit appartient à une journée close — un avoir corrige
+        // ce cas (hors V1).
+        $this->closeLockChecker->assertCanModifyDate(
+            $invoice->getReservation()->getCheckIn()
+        );
 
         $invoice->setStatusEnum(InvoiceStatus::ISSUED);
         $invoice->setIssuedAt(new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar')));
@@ -73,6 +84,14 @@ class InvoiceService
                 'Impossible d\'enregistrer un paiement sur une facture annulée.'
             );
         }
+
+        // Verrou night audit : un paiement est toujours daté du jour
+        // courant — on vérifie la business date courante. Un paiement
+        // d'aujourd'hui sur une facture passée close reste accepté
+        // (c'est précisément la mécanique du "geste corrigeant du jour").
+        $this->closeLockChecker->assertCanModifyDate(
+            $this->businessDateService->getCurrentBusinessDate()
+        );
 
         $method = PaymentMethod::from($dto->method);
 

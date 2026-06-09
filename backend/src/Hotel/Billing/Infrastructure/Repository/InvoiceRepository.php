@@ -38,4 +38,61 @@ class InvoiceRepository extends ServiceEntityRepository
 
         return $prefix . str_pad((string) ($sequence + 1), 5, '0', STR_PAD_LEFT);
     }
+
+    /**
+     * Factures DRAFT rattachées à des réservations dont le check-out
+     * effectif s'est produit à la date donnée. Utilisé par la checklist
+     * night audit pour signaler les départs non facturés.
+     *
+     * @return \App\Hotel\Billing\Domain\Entity\Invoice[]
+     */
+    public function findDraftForReservationsCheckedOutOn(\DateTimeImmutable $date): array
+    {
+        $start = $date->setTime(0, 0, 0);
+        $end   = $start->modify('+1 day');
+
+        return $this->createQueryBuilder('i')
+            ->addSelect('r')
+            ->leftJoin('i.reservation', 'r')
+            ->where('i.status = :draftStatus')
+            ->andWhere('r.status = :resStatus')
+            ->andWhere('r.checkedOutAt >= :start')
+            ->andWhere('r.checkedOutAt < :end')
+            ->setParameter('draftStatus', 'draft')
+            ->setParameter('resStatus', 'checked_out')
+            ->setParameter('start', $start)
+            ->setParameter('end', $end)
+            ->orderBy('i.createdAt', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Comptage et somme TTC des factures émises (issuedAt) pour un jour donné.
+     * Ignore drafts et annulées.
+     *
+     * @return array{count: int, total: string}
+     */
+    public function countAndSumIssuedForDate(\DateTimeImmutable $date): array
+    {
+        $start = $date->setTime(0, 0, 0);
+        $end   = $start->modify('+1 day');
+
+        $row = $this->createQueryBuilder('i')
+            ->select('COUNT(i.id) AS cnt, COALESCE(SUM(i.totalXof), 0) AS total')
+            ->where('i.issuedAt IS NOT NULL')
+            ->andWhere('i.issuedAt >= :start')
+            ->andWhere('i.issuedAt < :end')
+            ->andWhere('i.status <> :cancelled')
+            ->setParameter('start', $start)
+            ->setParameter('end', $end)
+            ->setParameter('cancelled', 'cancelled')
+            ->getQuery()
+            ->getSingleResult();
+
+        return [
+            'count' => (int) ($row['cnt'] ?? 0),
+            'total' => number_format((float) ($row['total'] ?? 0), 2, '.', ''),
+        ];
+    }
 }
