@@ -60,6 +60,10 @@ interface ToastEntry {
   body?: string
   metadata?: Record<string, unknown>
   createdAt: number
+  // Présent uniquement si ce toast est issu d'un grouping de rafale ;
+  // permet de faire grossir le compteur pour les 4e+ toasts de la
+  // même rafale au lieu d'en émettre un nouveau.
+  groupedCount?: number
 }
 
 export const useNotificationsStore = defineStore('notifications', () => {
@@ -97,23 +101,45 @@ export const useNotificationsStore = defineStore('notifications', () => {
   }
 
   function pushToast(notification: Notification): void {
+    const now = Date.now()
+
+    // 1) Existe-t-il déjà un toast GROUPÉ du même type dans la
+    //    fenêtre ? Si oui, incrémenter son count (4e+ toast d'une
+    //    rafale). Sans cette branche, le 4e toast s'affichait à part
+    //    parce que le `shouldGroupBurst` ne voyait plus que le toast
+    //    groupé (count=1) et le seuil n'était jamais re-atteint.
+    const existingGrouped = toasts.value.find(
+      t => t.type === notification.type
+        && t.groupedCount !== undefined
+        && now - t.createdAt < TOAST_BURST_WINDOW_MS,
+    )
+    if (existingGrouped) {
+      existingGrouped.groupedCount = (existingGrouped.groupedCount ?? 0) + 1
+      existingGrouped.title = groupTitle(
+        notification.type,
+        existingGrouped.groupedCount,
+      )
+      return
+    }
+
+    // 2) Sinon, détecter une rafale qui DÉCLENCHE le grouping initial.
     const grouped = shouldGroupBurst(notification.type)
     if (grouped) {
-      // Remplacer le toast existant par un toast groupé
       const sameType = toasts.value.filter(
         t => t.type === notification.type
-          && Date.now() - t.createdAt < TOAST_BURST_WINDOW_MS,
+          && now - t.createdAt < TOAST_BURST_WINDOW_MS,
       )
       const count = sameType.length + 1
       grouped.title = groupTitle(notification.type, count)
       grouped.body  = undefined
-      // Retirer les autres
+      grouped.groupedCount = count
       toasts.value = toasts.value.filter(
         t => t.id === grouped.id || t.type !== notification.type,
       )
       return
     }
 
+    // 3) Sinon, toast normal.
     toasts.value.push({
       id:        makeToastId(),
       type:      notification.type,
@@ -121,7 +147,7 @@ export const useNotificationsStore = defineStore('notifications', () => {
       title:     notification.title,
       body:      notification.body,
       metadata:  notification.metadata,
-      createdAt: Date.now(),
+      createdAt: now,
     })
   }
 

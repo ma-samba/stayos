@@ -2,6 +2,7 @@
 
 namespace App\Hotel\Reservation\Domain\Service;
 
+use App\Hotel\Billing\Domain\Service\FeeInvoiceService;
 use App\Hotel\Billing\Domain\Service\InvoiceDraftService;
 use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
 use App\Hotel\Housekeeping\Domain\Entity\CleaningTask;
@@ -17,6 +18,7 @@ use App\Hotel\Rate\Infrastructure\Repository\RatePlanRepository;
 use App\Hotel\Reservation\Application\DTO\CreateReservationDTO;
 use App\Hotel\Reservation\Application\DTO\UpdateReservationDTO;
 use App\Hotel\Reservation\Domain\Entity\Reservation;
+use App\Hotel\Reservation\Domain\Enum\NoShowPolicy;
 use App\Hotel\Reservation\Domain\Enum\ReservationStatus;
 use App\Hotel\Reservation\Infrastructure\Repository\ReservationRepository;
 use App\Hotel\Room\Domain\Entity\Room;
@@ -26,6 +28,7 @@ use App\Hotel\Shared\Domain\Service\AuditService;
 use App\Platform\Auth\Domain\Entity\StaffUser;
 use App\Shared\Exception\BusinessRuleException;
 use App\Shared\Mercure\MercurePublisher;
+use App\Shared\TenantContext;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -49,6 +52,9 @@ class ReservationEngine
         private readonly PromotionRepository    $promotionRepository,
         private readonly DailyCloseLockChecker  $closeLockChecker,
         private readonly BusinessDateService    $businessDateService,
+        private readonly TenantContext          $tenantContext,
+        private readonly ReservationFeeCalculator $feeCalculator,
+        private readonly FeeInvoiceService      $feeInvoiceService,
     ) {}
 
     public function create(CreateReservationDTO $dto, ?StaffUser $staff): Reservation
@@ -62,6 +68,16 @@ class ReservationEngine
         $tz = new \DateTimeZone('Africa/Dakar');
         $checkIn = new \DateTimeImmutable($dto->checkIn, $tz);
         $checkOut = new \DateTimeImmutable($dto->checkOut, $tz);
+
+        // Garde-fou métier : refuse séjour entièrement passé et checkIn
+        // très ancien. Cohérent avec les garde-fous checkIn et markNoShow.
+        // À la création : on enforce la fenêtre 30j (nouvelle résa →
+        // toujours dans la fenêtre raisonnable).
+        $this->assertReservationDatesValid(
+            $checkIn,
+            $checkOut,
+            enforceCheckInWindow: true,
+        );
 
         // Le verrou night audit n'empêche pas la création d'une résa future :
         // on bloque uniquement la création rétroactive sur des nuits closes.
@@ -101,7 +117,7 @@ class ReservationEngine
         $this->auditService->log(
             action:     'reservation.created',
             entityType: 'Reservation',
-            entityId:   'new',
+            entityId:   (string) $reservation->getId(),
             after:      [
                 'confirmationNumber' => $reservation->getConfirmationNumber(),
                 'room'               => $room->getNumber(),
@@ -161,6 +177,16 @@ class ReservationEngine
         $tz = new \DateTimeZone('Africa/Dakar');
         $checkIn  = $dto->checkIn  !== null ? new \DateTimeImmutable($dto->checkIn, $tz) : $reservation->getCheckIn();
         $checkOut = $dto->checkOut !== null ? new \DateTimeImmutable($dto->checkOut, $tz) : $reservation->getCheckOut();
+
+        // Garde-fou métier : refuse séjour entièrement passé.
+        // enforceCheckInWindow=true UNIQUEMENT si le checkIn est dans le
+        // DTO (= modifié explicitement). Sinon on ne bloque pas la modif
+        // d'une résa ancienne pour changer juste notes / adultes / chambre.
+        $this->assertReservationDatesValid(
+            $checkIn,
+            $checkOut,
+            enforceCheckInWindow: $dto->checkIn !== null,
+        );
 
         $room = $reservation->getRoom();
         if ($dto->roomId !== null) {
@@ -247,8 +273,30 @@ class ReservationEngine
         return $reservation;
     }
 
-    public function cancel(Reservation $reservation, string $reason, ?StaffUser $staff): Reservation
-    {
+    /**
+     * Annule une réservation en appliquant la politique d'annulation du
+     * tenant. Si des frais sont dus, une facture distincte est émise
+     * (statut ISSUED, lignes "Frais d'annulation").
+     *
+     * Le réceptionniste peut surcharger le montant via $feeOverrideXof
+     * (geste commercial) — tracé dans l'audit log.
+     *
+     * @param string|null $feeOverrideXof Montant TTC en XOF, prioritaire
+     *   sur le calcul auto. `'0'` = annulation gratuite forcée.
+     *
+     * @return array{
+     *   reservation: Reservation,
+     *   invoice: Invoice|null,
+     *   feeXof: string,
+     *   feeQuote: array{amountXof: string, reason: string, hoursBefore: int}
+     * }
+     */
+    public function cancel(
+        Reservation $reservation,
+        string $reason,
+        ?StaffUser $staff,
+        ?string $feeOverrideXof = null,
+    ): array {
         $blockedStatuses = [ReservationStatus::CHECKED_IN, ReservationStatus::CHECKED_OUT];
         if (in_array($reservation->getStatusEnum(), $blockedStatuses, true)) {
             throw new BusinessRuleException(sprintf(
@@ -261,15 +309,40 @@ class ReservationEngine
         // une journée close réécrirait du passé comptable → refus.
         $this->closeLockChecker->assertCanModifyDate($reservation->getCheckIn());
 
+        $tenant   = $this->tenantContext->get();
+        $policy   = $tenant->getCancellationPolicy();
+        $now      = new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar'));
+        $feeQuote = $this->feeCalculator->computeCancellationFee($reservation, $policy, $now);
+        $fee      = $feeOverrideXof !== null
+            ? bcadd($feeOverrideXof, '0', 2)
+            : $feeQuote['amountXof'];
+
+        $invoice = null;
+        if (bccomp($fee, '0', 2) > 0) {
+            $description = sprintf(
+                "Frais d'annulation (résa %s) — %s",
+                $reservation->getConfirmationNumber(),
+                $feeQuote['reason'],
+            );
+            $invoice = $this->feeInvoiceService->createFeeInvoice(
+                $reservation,
+                FeeInvoiceService::KIND_CANCELLATION,
+                $fee,
+                $description,
+                $staff,
+            );
+        }
+
         $beforeStatus = $reservation->getStatus();
 
         $reservation->setStatusEnum(ReservationStatus::CANCELLED);
         $reservation->setNotes(
             ($reservation->getNotes() ? $reservation->getNotes() . "\n" : '')
-            . '[Annulation] ' . $reason
+            . sprintf('[Annulation] %s — policy=%s, fee=%s XOF', $reason, $policy->value, $fee)
         );
 
-        // Libérer la chambre si elle était occupée
+        // Libérer la chambre si elle était occupée (cas dégénéré : on
+        // ne devrait pas atteindre ici si CHECKED_IN, déjà bloqué plus haut).
         if ($beforeStatus === ReservationStatus::CHECKED_IN->value) {
             $reservation->getRoom()->setStatusEnum(RoomStatus::AVAILABLE);
         }
@@ -279,7 +352,14 @@ class ReservationEngine
             entityType: 'Reservation',
             entityId:   (string) $reservation->getId(),
             before:     ['status' => $beforeStatus],
-            after:      ['status' => ReservationStatus::CANCELLED->value, 'reason' => $reason],
+            after:      [
+                'status'        => ReservationStatus::CANCELLED->value,
+                'reason'        => $reason,
+                'policy'        => $policy->value,
+                'feeXof'        => $fee,
+                'feeOverridden' => $feeOverrideXof !== null,
+                'invoiceId'     => $invoice !== null ? (string) $invoice->getId() : null,
+            ],
             staffUser:  $staff,
         );
 
@@ -292,7 +372,120 @@ class ReservationEngine
             'reason'             => $reason,
         ]);
 
-        return $reservation;
+        return [
+            'reservation' => $reservation,
+            'invoice'     => $invoice,
+            'feeXof'      => $fee,
+            'feeQuote'    => $feeQuote,
+        ];
+    }
+
+    /**
+     * Marque la réservation no-show et applique la politique tenant
+     * (ou l'override fourni par le réceptionniste).
+     *
+     * @return array{
+     *   reservation: Reservation,
+     *   invoice: Invoice|null,
+     *   policy: string,
+     *   feeXof: string
+     * }
+     */
+    public function markNoShow(
+        Reservation $reservation,
+        ?StaffUser $staff,
+        ?NoShowPolicy $policyOverride = null,
+    ): array {
+        $allowed = [ReservationStatus::CONFIRMED, ReservationStatus::PENDING];
+        if (!in_array($reservation->getStatusEnum(), $allowed, true)) {
+            throw new BusinessRuleException(sprintf(
+                'Impossible de marquer no-show : statut actuel "%s" non autorisé.',
+                $reservation->getStatus()
+            ));
+        }
+
+        // Le no-show n'a de sens que pour une résa dont la date d'arrivée
+        // est aujourd'hui ou passée. Le frontend filtre déjà via
+        // `canMarkNoShow` mais une requête API directe contournerait.
+        $today = $this->businessDateService->getCurrentBusinessDate();
+        if ($reservation->getCheckIn() > $today) {
+            throw new BusinessRuleException(sprintf(
+                'Impossible de marquer no-show : la date d\'arrivée (%s) est dans le futur.',
+                $reservation->getCheckIn()->format('Y-m-d'),
+            ));
+        }
+
+        // Verrou night audit : la date concernée est checkIn. Si elle
+        // tombe dans une journée close, opération refusée.
+        $this->closeLockChecker->assertCanModifyDate($reservation->getCheckIn());
+
+        $tenant = $this->tenantContext->get();
+        $policy = $policyOverride ?? $tenant->getNoShowPolicy();
+        $fee    = $this->feeCalculator->computeNoShowFee($reservation, $policy);
+
+        $invoice = null;
+        if (bccomp($fee, '0', 2) > 0) {
+            $description = match ($policy) {
+                NoShowPolicy::FIRST_NIGHT => sprintf(
+                    'Frais de no-show (résa %s, 1ère nuit)',
+                    $reservation->getConfirmationNumber(),
+                ),
+                NoShowPolicy::FULL => sprintf(
+                    'Frais de no-show (résa %s, total séjour)',
+                    $reservation->getConfirmationNumber(),
+                ),
+                default => sprintf(
+                    'Frais de no-show (résa %s)',
+                    $reservation->getConfirmationNumber(),
+                ),
+            };
+
+            $invoice = $this->feeInvoiceService->createFeeInvoice(
+                $reservation,
+                FeeInvoiceService::KIND_NO_SHOW,
+                $fee,
+                $description,
+                $staff,
+            );
+        }
+
+        $beforeStatus = $reservation->getStatus();
+
+        $reservation->setStatusEnum(ReservationStatus::NO_SHOW);
+        $reservation->setNotes(
+            ($reservation->getNotes() ? $reservation->getNotes() . "\n" : '')
+            . sprintf('[No-show] policy=%s, fee=%s XOF', $policy->value, $fee)
+        );
+
+        $this->auditService->log(
+            action:     'reservation.no_show',
+            entityType: 'Reservation',
+            entityId:   (string) $reservation->getId(),
+            before:     ['status' => $beforeStatus],
+            after:      [
+                'status'    => ReservationStatus::NO_SHOW->value,
+                'policy'    => $policy->value,
+                'feeXof'    => $fee,
+                'overridden'=> $policyOverride !== null,
+                'invoiceId' => $invoice !== null ? (string) $invoice->getId() : null,
+            ],
+            staffUser:  $staff,
+        );
+
+        $this->entityManager->flush();
+
+        $this->mercurePublisher->publish('reservation.no_show', [
+            'id'                 => (string) $reservation->getId(),
+            'confirmationNumber' => $reservation->getConfirmationNumber(),
+            'room'               => $reservation->getRoom()->getNumber(),
+        ]);
+
+        return [
+            'reservation' => $reservation,
+            'invoice'     => $invoice,
+            'policy'      => $policy->value,
+            'feeXof'      => $fee,
+        ];
     }
 
     public function checkIn(Reservation $reservation, ?string $notes, ?StaffUser $staff): Reservation
@@ -305,11 +498,26 @@ class ReservationEngine
             ));
         }
 
+        // Garde-fou métier : refuser le check-in si le séjour est déjà
+        // expiré sur le papier (today > checkOut prévu). Pattern symétrique
+        // du garde-fou markNoShow (Sprint 14-A.2) qui refuse checkIn > today.
+        // Sans cette protection, on enregistrait l'arrivée d'un client
+        // dont le séjour était expiré depuis X jours — la résa aurait dû
+        // être marquée no-show.
+        // Comparaison `<` stricte : si checkOut == today, on autorise
+        // (cas dégénéré du day-use, rare mais légitime).
+        $today = $this->businessDateService->getCurrentBusinessDate();
+        if ($reservation->getCheckOut() < $today) {
+            throw new BusinessRuleException(sprintf(
+                'Impossible d\'enregistrer l\'arrivée : le séjour prévu jusqu\'au %s est expiré. '
+                . 'Marquer la réservation no-show ou modifier les dates.',
+                $reservation->getCheckOut()->format('Y-m-d'),
+            ));
+        }
+
         // Défensif : refuse si la business date courante est déjà close
         // (ne devrait jamais arriver car on ne peut pas clôturer deux fois).
-        $this->closeLockChecker->assertCanModifyDate(
-            $this->businessDateService->getCurrentBusinessDate()
-        );
+        $this->closeLockChecker->assertCanModifyDate($today);
 
         $now = new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar'));
 
@@ -410,6 +618,7 @@ class ReservationEngine
             $this->logger->error('Échec génération facture draft au check-out', [
                 'reservation' => (string) $reservation->getId(),
                 'error'       => $e->getMessage(),
+                'class'       => $e::class,
             ]);
         }
 
@@ -452,6 +661,55 @@ class ReservationEngine
         }
 
         return $quote;
+    }
+
+    /**
+     * Garde-fou métier sur les dates d'une réservation à la création
+     * ou à la modification. Pattern symétrique des garde-fous checkIn
+     * (refuse si checkOut < today) et markNoShow (refuse si checkIn > today).
+     *
+     * Règles :
+     * 1. checkOut >= today — le séjour doit au moins s'étendre jusqu'à
+     *    aujourd'hui. Empêche la création d'une résa entièrement passée
+     *    (-10j → -7j, aucun cas métier valide).
+     *
+     * 2. checkIn >= today - 30 jours (si $enforceCheckInWindow) — le
+     *    checkIn ne doit pas être trop ancien. 30 jours couvre le walk-in
+     *    tardif légitime ; au-delà c'est presque certainement une saisie
+     *    erronée. Désactivable pour la modif d'une résa ancienne sans
+     *    toucher à sa date d'arrivée.
+     *
+     * @throws BusinessRuleException si une règle est violée
+     */
+    private function assertReservationDatesValid(
+        \DateTimeImmutable $checkIn,
+        \DateTimeImmutable $checkOut,
+        bool $enforceCheckInWindow,
+    ): void {
+        $today = $this->businessDateService->getCurrentBusinessDate();
+
+        if ($checkOut < $today) {
+            throw new BusinessRuleException(sprintf(
+                'Impossible : le séjour (jusqu\'au %s) est déjà terminé. '
+                . 'Vérifier les dates d\'arrivée et de départ.',
+                $checkOut->format('Y-m-d'),
+            ));
+        }
+
+        if ($enforceCheckInWindow) {
+            $maxBackDays = 30;
+            $oldestAllowedCheckIn = $today->modify("-{$maxBackDays} days");
+
+            if ($checkIn < $oldestAllowedCheckIn) {
+                throw new BusinessRuleException(sprintf(
+                    'Impossible : la date d\'arrivée (%s) est trop ancienne '
+                    . '(plus de %d jours dans le passé). Contacter l\'administrateur '
+                    . 'pour une régularisation manuelle.',
+                    $checkIn->format('Y-m-d'),
+                    $maxBackDays,
+                ));
+            }
+        }
     }
 
     private function resolveHotelId(): Uuid

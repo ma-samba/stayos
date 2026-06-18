@@ -54,10 +54,12 @@ async function confirm(): Promise<void> {
         <input v-model="notes" class="input" placeholder="Ex: Client VIP, arrivée tardive..." />
       </div>
 
-      <div v-if="error"
+      <div
+v-if="error"
            style="background:var(--pms-red-light); color:var(--pms-red);
                   padding:8px 12px; border-radius:var(--radius-md);
-                  font-size:12px; margin-bottom:10px;">
+                  font-size:12px; margin-bottom:10px;"
+>
         <i class="ti ti-alert-circle"></i> {{ error }}
       </div>
 

@@ -117,6 +117,16 @@ class OtpTest extends ApiTestCase
             );
         }
 
+        // Sprint 14-B.1.2.1 — Le RateLimitSubscriber applique
+        // otp_resend (3/10min/email) sur verify-otp. Après 3
+        // tentatives, le 4e appel serait bloqué par le limiter
+        // (429) avant d'atteindre le contrôleur. Ce test vérifie
+        // la couche OtpService (attempts >= 3 invalide le token,
+        // persisté en BDD), pas le rate limiter → on simule
+        // "l'utilisateur a attendu 10 minutes" en resetant le
+        // limiter manuellement.
+        static::getContainer()->get('cache.rate_limiter')->clear();
+
         // Le token est maintenant invalide (attempts >= 3)
         $this->apiRequest(
             'POST',

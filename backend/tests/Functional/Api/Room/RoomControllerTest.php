@@ -7,11 +7,7 @@ use App\Tests\Functional\ApiTestCase;
 /**
  * Tests fonctionnels — RoomController.
  *
- * Les tests @group integration nécessitent les fixtures chargées (make fixtures).
- * Les tests sans groupe tournent avec uniquement la BDD de test migrée.
- *
- * Lancer tous les tests : make test-functional
- * Lancer les tests d'intégration : php bin/phpunit --group integration
+ * Lancer la suite : make test-functional
  */
 class RoomControllerTest extends ApiTestCase
 {
@@ -86,7 +82,6 @@ class RoomControllerTest extends ApiTestCase
     // ──────────────────────────────────────────────────────────────
 
     /**
-     * @group integration
      */
     public function testGetRoomsRequiresAuthentication(): void
     {
@@ -96,7 +91,6 @@ class RoomControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testGetAvailableRoomsRequiresAuthentication(): void
     {
@@ -110,7 +104,6 @@ class RoomControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testGetAvailableRoomsWithInvalidDateReturnsBadRequest(): void
     {
@@ -127,7 +120,6 @@ class RoomControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testGetAvailableRoomsWithCheckOutBeforeCheckInReturns422(): void
     {
@@ -144,7 +136,6 @@ class RoomControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testGetRoomsReturnsListWithExpectedStructure(): void
     {
@@ -169,7 +160,6 @@ class RoomControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testUpdateRoomStatusWithInvalidValueReturns422(): void
     {
@@ -190,7 +180,6 @@ class RoomControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testUpdateRoomStatusSuccess(): void
     {

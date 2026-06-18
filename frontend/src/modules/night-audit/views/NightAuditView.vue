@@ -7,6 +7,7 @@ import type {
   NightAuditCurrent,
   NightAuditChecklist,
   DailyCloseListResponse,
+  DailyClose,
 } from '@/types/night-audit'
 import WarningList from '../components/WarningList.vue'
 import ConfirmCloseModal from '../components/ConfirmCloseModal.vue'
@@ -32,14 +33,15 @@ const showConfirmModal = ref(false)
 
 const warnings = computed(() => checklist.value?.warnings ?? [])
 
-const lastEffectiveClose = computed(() => {
-  // L'historique le plus récent (la liste est triée business_date DESC).
-  return history.value?.data?.[0] ?? null
-})
+// Mis à jour UNIQUEMENT au reload (page 1). La navigation paginée
+// ultérieure ne le change pas — le bouton « Réouvrir » doit cibler
+// la vraie dernière close, pas le 1er élément de la page courante.
+const lastEffectiveClose = ref<DailyClose | null>(null)
 
 async function reload(): Promise<void> {
   loading.value = true
   try {
+    page.value = 1
     const [cur, chk, hist] = await Promise.all([
       nightAuditService.getCurrent(),
       nightAuditService.getChecklist(),
@@ -48,6 +50,7 @@ async function reload(): Promise<void> {
     current.value   = cur
     checklist.value = chk
     history.value   = hist
+    lastEffectiveClose.value = hist.data?.[0] ?? null
   } catch (e) {
     notif.pushUiToast('alert', extractError(e, 'Chargement impossible.'))
   } finally {
@@ -59,6 +62,7 @@ async function changePage(newPage: number): Promise<void> {
   if (newPage < 1 || newPage > (history.value?.meta.pages ?? 1)) return
   page.value = newPage
   history.value = await nightAuditService.list(page.value, perPage)
+  // NE PAS mettre à jour lastEffectiveClose ici (reste figé au reload).
 }
 
 async function onConfirmClose(force: boolean): Promise<void> {
@@ -138,7 +142,7 @@ onMounted(reload)
           <div class="status-title">
             Journée du {{ fmtDateBusiness(current.businessDate) }} déjà clôturée
           </div>
-          <div class="status-sub" v-if="lastEffectiveClose">
+          <div v-if="lastEffectiveClose" class="status-sub">
             Clôturée le {{ fmtDateTime(lastEffectiveClose.closedAt) }}
             par {{ lastEffectiveClose.closedByEmail }}.
           </div>
@@ -174,7 +178,8 @@ onMounted(reload)
             {{ fmtDateBusiness(current.businessDate) }}
           </div>
           <div class="status-sub">
-            Cutoff configuré&nbsp;: 5 h (changement de business date à 5 h du matin)
+            Cutoff configuré&nbsp;: {{ current.cutoffHour }} h
+            (changement de business date à {{ current.cutoffHour }} h du matin)
           </div>
         </div>
       </section>

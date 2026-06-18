@@ -46,6 +46,11 @@ class PaydunyaWebhookHandler
         private readonly SaasInvoiceService      $saasInvoiceService,
         private readonly AbonnementService       $abonnementService,
         #[Target('business')] private readonly LoggerInterface $logger,
+        // Sprint 14-B.1.2.2 — Vérification hash SHA-512 MasterKey
+        // Paydunya. Valeurs par défaut : compatibles avec les
+        // instanciations directes en test unitaire.
+        private readonly string                  $paydunyaMasterKey = '',
+        private readonly bool                    $hashVerificationEnabled = false,
     ) {}
 
     /**
@@ -64,6 +69,23 @@ class PaydunyaWebhookHandler
         string $tenantSlug,
         bool   $isSaas = false,
     ): void {
+        // ── Étape 0 : vérification de la source Paydunya (Sprint 14-B.1.2.2) ──
+        // Le hash est le SHA-512 STATIQUE de la MasterKey. Il prouve que
+        // l'expéditeur connaît la MasterKey — pas qu'il a signé ce message
+        // précis (limite du protocole Paydunya, doc HTTP/JSON). Combiné au
+        // callback secret par paiement et à la reconfirmation gateway, on
+        // a une défense en profondeur. Désactivable via
+        // PAYDUNYA_HASH_VERIFICATION_ENABLED en dev/test.
+        if ($this->hashVerificationEnabled
+            && !$this->isPaydunyaHashValid($payload)
+        ) {
+            $this->logger->warning('IPN: invalid Paydunya source hash', [
+                'tenant_slug' => $tenantSlug,
+                'is_saas'     => $isSaas,
+            ]);
+            return;
+        }
+
         $this->logger->info('IPN received', [
             'tenant_slug'  => $tenantSlug,
             'is_saas'      => $isSaas,
@@ -112,11 +134,53 @@ class PaydunyaWebhookHandler
             $this->logger->error('IPN processing error', [
                 'tenant_slug' => $tenantSlug,
                 'error'       => $e->getMessage(),
+                'class'       => $e::class,
             ]);
         } finally {
             // TOUJOURS restaurer le search_path
             $this->connection->executeStatement('SET search_path TO public');
         }
+    }
+
+    /**
+     * Vérifie que le payload IPN vient de Paydunya en comparant le hash
+     * fourni avec sha512(MasterKey).
+     *
+     * Source : doc Paydunya HTTP/JSON, section "Configuration de l'IPN" —
+     * « Le hash renvoyé par PayDunya est le hash de votre MasterKey. […]
+     * L'algorithme utilisé est du SHA-512. »
+     *
+     * Limites connues (documentées pour les futurs lecteurs) :
+     * - Hash CONSTANT pour notre compte → vulnérable au replay théorique
+     *   d'un IPN légitime intercepté.
+     * - Hash ne couvre PAS le body → un attaquant qui connaîtrait la
+     *   MasterKey pourrait altérer n'importe quel champ.
+     *
+     * Mitigations en aval :
+     * - Idempotence via verrou pessimiste (replay sans effet).
+     * - verifyPayment via gateway (anti-tampering du montant).
+     * - Callback secret custom StayOS par paiement (étape 5).
+     */
+    private function isPaydunyaHashValid(array $payload): bool
+    {
+        // Mauvaise config prod (flag ON mais MasterKey vide) : on refuse
+        // tous les IPN. Préférable à accepter sans vérifier — l'erreur
+        // sera visible dans les logs et corrigeable via Heroku Config Vars.
+        if ($this->paydunyaMasterKey === '') {
+            $this->logger->error(
+                'IPN: hash verification enabled but PAYDUNYA_MASTER_KEY is empty — '
+                . 'check Heroku Config Vars',
+            );
+            return false;
+        }
+
+        $providedHash = $payload['hash'] ?? null;
+        if (!\is_string($providedHash) || $providedHash === '') {
+            return false;
+        }
+
+        $expectedHash = \hash('sha512', $this->paydunyaMasterKey);
+        return \hash_equals($expectedHash, $providedHash);
     }
 
     private function processPayment(array $payload, string $providedSecret, string $tenantSlug): void
@@ -265,6 +329,7 @@ class PaydunyaWebhookHandler
             $this->logger->warning('IPN: invoice email failed (non-blocking)', [
                 'invoice_id' => (string) $invoice->getId(),
                 'error'      => $e->getMessage(),
+                'class'      => $e::class,
             ]);
         }
     }

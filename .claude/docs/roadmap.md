@@ -5,9 +5,9 @@ Claude Code génère le code → l'utilisateur valide → Claude (chat) relit et
 Pour chaque sprint : demander le prompt Claude Code dans le chat, puis soumettre le code généré pour relecture.
 
 ## Statut global
-- Sprint courant : **Sprint 13quinquies — Corrections financières (no-show, refund, politique d'annulation)**
-- Dernière mise à jour : 9 juin 2026
-- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 13bis, 13ter, 13quater
+- Sprint courant : **Sprint 14-C — Déploiement**
+- Dernière mise à jour : 18 juin 2026
+- Sprints terminés : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 13bis, 13ter, 13quater, 13quinquies, 14-A.1, 14-A.2, 14-A.3, 14-B
 
 ---
 
@@ -1264,50 +1264,1159 @@ reste visible dans le snapshot et l'audit log.
 
 ---
 
-### ⬜ Sprint 13quinquies — Corrections financières
-**Objectif** : combler les manques métier identifiés à la
-clôture du 13quater. Un PMS ne peut pas aller en prod sans
-ces mécanismes. Périmètre prévisionnel (à arbitrer) :
-- **No-show** : action `markNoShow` côté manager/réceptionniste,
-  facturation configurable (rien / 1ère nuit / total),
-  intégration au warning `arrivals.pending` du night audit.
-- **Refund / remboursement** : statut `REFUNDED` sur Payment,
-  service de remboursement avec audit obligatoire, sortie de
-  caisse négative tracée.
-- **Politique d'annulation** : frais d'annulation selon
-  préavis (gratuit > 48 h, 1 nuit retenue 24-48 h, total < 24 h
-  par défaut, configurable par tenant). À arbitrer : inclure
-  ou reporter en V2 ?
+### ✅ Sprint 13quinquies — Corrections financières
+**Objectif** : combler les 2 manques métier critiques identifiés
+en clôture du Sprint 13quater (no-show et refund non
+implémentés), et compléter avec une politique d'annulation
+configurable. Un PMS ne pouvait pas raisonnablement aller en
+prod sans ces mécanismes.
 
-Le prompt principal arbitrera : (a) politique no-show par
-tenant ou cas par cas, (b) refund minimaliste (paiement
-négatif tracé) ou complet (credit note), (c) frais
-d'annulation inclus ou reportés.
+⚠️ Décisions validées : (a) politique no-show par tenant
+configurable (none / first_night / full, défaut first_night)
+avec surcharge cas par cas par le réceptionniste ; (b) refund
+minimaliste V1 (Payment négatif tracé, pas de credit note) ;
+(c) politique d'annulation par tenant (flexible / moderate /
+strict, défaut flexible) avec frais auto-calculés et
+surchargeables (geste commercial) ; (d) facture distincte
+émise direct ISSUED pour les frais no-show et annulation.
 
-**Livrable** : un PMS qui sait traiter les écarts financiers
-courants — clients absents (no-show), remboursements partiels
-ou totaux, et annulations avec frais conformes à une politique
-explicite. Bloquant avant le passage en prod.
+**Backend — No-show + politique d'annulation [13quinquies-A]**
+- [x] Enums `NoShowPolicy` (none / first_night / full) et
+  `CancellationPolicy` (flexible / moderate / strict).
+- [x] `Tenant::getNoShowPolicy()` / `setNoShowPolicy()` +
+  `getCancellationPolicy()` / `setCancellationPolicy()` —
+  stockage dans `settings` JSON nullable, défauts cohérents,
+  validation par enum. Pas de migration nécessaire.
+- [x] `ReservationFeeCalculator` (service pur, sans dépendances
+  externes) : `computeNoShowFee()` (match policy → rateXof /
+  totalXof / 0), `computeCancellationFee($resa, $policy, $now)`
+  qui retourne `{amountXof, reason, hoursBefore}` selon la
+  matrice politique × délai. `hoursBetween` via timestamps Unix
+  (robuste DST), `normalize` via `bcadd($value, '0', 2)`.
+- [x] `FeeInvoiceService::createFeeInvoice($resa, $kind,
+  $amountXof, $description, $staff)` — constantes publiques
+  `KIND_NO_SHOW` / `KIND_CANCELLATION`, calcul TTC→HT→TVA en
+  bcmath, `InvoiceLine` entity séparée (pas JSON), statut
+  émis directement à `ISSUED`, audit + Monolog channel
+  `business`, timezone explicite Africa/Dakar.
+- [x] `ReservationEngine::markNoShow($resa, $staff,
+  $policyOverride = null)` : allowed = CONFIRMED + PENDING,
+  verrou night audit sur `checkIn`, fallback policy tenant si
+  override null, audit log enrichi avec `policy` /
+  `overridden`, Mercure publish `reservation.no_show`.
+- [x] `ReservationEngine::cancel` étendu : signature
+  non-breaking avec `?string $feeOverrideXof = null`, retour
+  passe de `Reservation` à `array {reservation, invoice, feeXof,
+  feeQuote}`, audit log enrichi avec `feeOverridden`. Garde
+  défensive `bcadd($feeOverrideXof, '0', 2)` pour normaliser
+  l'override.
+- [x] `ReservationController` étendu : `POST /no-show`
+  (parsing override via `NoShowPolicy::tryFrom`),
+  `GET /cancellation-quote` (dry-run sans effet de bord),
+  `POST /cancel` étendu (body `reason` + `feeOverrideXof`,
+  reason < 5 chars → fallback "Annulation sans motif détaillé"
+  plutôt que 422, pragmatique).
+- [x] `TenantSettingsController` — endpoint léger
+  `GET /api/tenant/settings` exposant `noShowPolicy` +
+  `cancellationPolicy` + `businessDayCutoffHour` + `timezone`
+  + `currency`. Lu une fois au mount des modales / vues.
+  Volontairement sans `PATCH` en V1 (configuration via UPDATE
+  BDD en attendant l'UI dédiée, voir backlog).
+
+**Backend — Refund [13quinquies-B]**
+- [x] **Décision documentée** : pas de `PaymentStatus::REFUNDED`.
+  Pourquoi : si Payment refund en REFUNDED, alors
+  `getCompletedPayments` qui filtre PAID ne le voit pas et
+  `getPaidXof` ne le déduit pas → balance fausse. Le pattern
+  "Payment négatif + status PAID" fonctionne naturellement
+  avec `bcadd` qui somme correctement les négatifs.
+- [x] `InvoiceService::refundPayment(Invoice, RefundDTO,
+  StaffUser): Payment` — verrou night audit sur business date
+  COURANTE (pas sur date facture, cohérent avec
+  `recordPayment`), garde anti-over-refund via
+  `bccomp($amountXof, $alreadyPaid, 2) > 0`, négativation
+  double-normalisée `bcsub('0', bcadd($amount, '0', 2), 2)`,
+  Payment créé avec status PAID + montant négatif + reason
+  dans notes préfixée `[Remboursement]`, audit log enrichi
+  (`amountRefunded` positive saisie + `storedAsXof` négative
+  persistée + `previousStatus` / `newStatus`), Mercure publish
+  `payment.refunded`.
+- [x] `InvoiceService::resolveStatusAfterRefund()` privée :
+  CANCELLED reste CANCELLED (return null, statut figé même
+  après refund), balance >= total → ISSUED, balance <= 0 →
+  PAID, sinon PARTIAL.
+- [x] `RefundDTO` (Application/DTO) : `amountXof` (NotBlank +
+  numeric + GreaterThan(0)), `method` (NotBlank + Choice via
+  `PaymentMethod::values()`), `reason` (NotBlank + Length min 5).
+- [x] `PaymentMethod::values()` ajoutée via
+  `array_column(self::cases(), 'value')` pour Assert\Choice.
+- [x] `InvoiceController::refund` — `POST /api/invoices/{id}/refunds`,
+  ParamConverter sur Invoice, validation DTO standard, réponse
+  201 avec invoice + refund, RBAC hérité de classe
+  `ROLE_ACCESS_BILLING` (réceptionniste + manager + comptable
+  peuvent rembourser — le comptable est légitime).
+
+**Frontend [13quinquies-A]**
+- [x] Types `financial-policies.ts` (NoShowPolicy,
+  CancellationPolicy, TenantSettings, CancellationQuote).
+- [x] Service `tenant-settings.service.ts` —
+  `tenantSettingsService.get()` qui lit
+  `/api/tenant/settings`.
+- [x] Service `reservation.service.ts` étendu :
+  `getCancellationQuote(id)`, `markNoShow(id, policyOverride?)`,
+  `cancel(id, reason, feeOverrideXof?)` (signature évoluée).
+- [x] Store `reservations.store.ts` : `cancel` et `markNoShow`
+  mis à jour pour propager le payload enrichi (résa + invoice
+  + feeXof).
+- [x] `MarkNoShowModal.vue` — lazy-load settings tenant à la
+  1re ouverture (cache local), reset override à 'tenant' à
+  chaque ouverture, mention "Override = geste commercial,
+  tracé dans l'audit log" affichée uniquement quand override
+  actif, total live recalculé à chaque changement de select.
+- [x] `CancelReservationModal.vue` — fetch quote au mount via
+  `watch(isOpen)` + `onMounted` (cf. fix robustesse plus
+  bas), reset complet à chaque ouverture (reason,
+  overrideEnabled, quote, feeInput), checkbox "Modifier le
+  montant (geste commercial)" avec input number, `feeOverride`
+  envoyé UNIQUEMENT si valeur différente du quote (évite de
+  tracer `feeOverridden=true` pour rien), `fmtHours` qui
+  affiche en jours si ≥ 48h.
+- [x] `ReservationDetailView.vue` — `canMarkNoShow` computed
+  (status ∈ {confirmed, pending} ET `checkIn <= todayDakar`
+  via `toLocaleDateString('en-CA', { timeZone: 'Africa/Dakar' })`),
+  `canCancel` computed (status ∈ {confirmed, pending}), toasts
+  adaptatifs selon `result.invoice` (facture créée ou non),
+  refresh `load()` après confirm pour voir le nouveau statut +
+  facture liée.
+
+**Frontend [13quinquies-B]**
+- [x] Service `invoice.service.ts` étendu : `refund(invoiceId,
+  payload): Promise<RefundResult>` qui retourne
+  `{invoice, refund}` sérialisés.
+- [x] `RefundModal.vue` — reset au `watch(isOpen)` avec montant
+  pré-rempli au `paidXof`, validation client live
+  (`amountValid` : > 0 ET <= paidXof ; `reasonValid` : ≥ 5
+  chars ; `formValid`), hint adaptatif selon état (vide /
+  négatif / > max / valide avec solde résiduel), bandeau
+  info bleu sur "Le remboursement effectif doit être fait
+  manuellement par votre agent client. StayOS trace
+  l'opération comptablement", methods array statique excluant
+  OTA et Mobile Money (cohérent pour un refund), bouton danger
+  rouge.
+- [x] `InvoiceDetailView.vue` — `canRefund` computed
+  (`Number(paidXof) > 0`), bouton "Rembourser" rouge dans la
+  barre d'actions, lignes refund visuellement distinctes :
+  classe `is-refund` (fond `#FBE5E5` + border-left rouge),
+  icône `ti-arrow-back-up`, libellé "Remboursement · via
+  {méthode}", raison extraite via `extractRefundReason`
+  (retire le préfixe `[Remboursement]`), montant en rouge
+  avec préfixe `-`, badge status omis (pour ne pas confondre
+  avec un encaissement).
+
+**Hotfix UX intercalé : modale d'annulation listing**
+- [x] `ReservationsView.vue` — remplacement complet de la
+  modale inline simpliste (juste reason) par le composant
+  `CancelReservationModal` partagé. Imports ajoutés
+  (`CancelReservationModal` + `useNotificationsStore`).
+- [x] State refondu : `cancelTarget` + `cancelReason` (ids
+  bruts) remplacés par `cancelTargetRes: Reservation | null`
+  + `submittingCancel: boolean` (ressource complète attendue
+  par le composant).
+- [x] Handler `onConfirmCancel(payload)` propre : appelle
+  `store.cancel` avec `feeOverrideXof`, toasts adaptatifs
+  selon `result.invoice`, gestion d'erreur via `extractError`.
+- [x] Bouton "Annuler" du tableau passe de `cancelTarget = r.id`
+  à `cancelTargetRes = r`.
+- [x] Modale HTML inline supprimée (~25 lignes), remplacée
+  par instanciation propre `<CancelReservationModal />`.
+
+**Fix robustesse intercalé : CancelReservationModal**
+- [x] **Diagnostic** : `ReservationsView` utilise
+  `v-if="cancelTargetRes"` qui ne monte le composant QUE
+  quand truthy, avec `:is-open="cancelTargetRes !== null"`
+  donc `isOpen=true` au moment du mount. Le
+  `watch(() => props.isOpen)` ne capture pas la valeur
+  initiale (il attend une transition `false → true`), donc
+  `loadQuote()` n'était jamais appelé → `quote` restait
+  `null` → body de la modale VIDE (rien ne match dans les
+  `v-if`/`v-else-if` du template). `MarkNoShowModal` avait
+  déjà la bonne protection via `onMounted`, mais
+  `CancelReservationModal` n'avait QUE le `watch`.
+- [x] Ajout import `onMounted` + ajout d'un `quoteError`
+  ref pour état d'erreur visible.
+- [x] `loadQuote()` robustifiée avec `catch (e: unknown)` qui
+  extrait le message via `(e as any)?.response?.data?.error`
+  avec fallback FR explicite, reset `quote.value = null`
+  pour ne pas afficher du contenu obsolète après erreur.
+- [x] Ajout du `onMounted` défensif avec commentaire qui
+  documente précisément pourquoi le hook existe.
+- [x] Template : nouvelle branche `v-else-if="quoteError"`
+  entre loading et quote, avec icône `ti-alert-circle`,
+  message, et bouton "Réessayer" qui rappelle `loadQuote()`.
+- [x] Style `.error-box` ajouté, palette cohérente avec
+  `.fee-row` (rouge `#B83232` / `#8C2424` / `#F5DADA`).
+
+**Tests**
+- [x] Unit `ReservationFeeCalculatorTest` — matrice
+  complète des politiques × délais (3 politiques × N délais
+  pour cancel, 3 politiques pour no-show), `hoursBetween`
+  avec différents écarts incluant DST.
+- [x] Functional `NoShowTest` (@group integration) :
+  `testReceptionistCanMarkNoShow`,
+  `testNoShowWithFirstNightPolicyCreatesInvoice`,
+  `testNoShowWithNoneOverrideCreatesNoInvoice`,
+  `testNoShowOnCheckedInReservationRefused` (422),
+  `testNoShowOnPastClosedDayRefused` (verrou),
+  `testHousekeeperCannotMarkNoShow` (403).
+- [x] Functional `CancellationWithFeesTest` (@group integration) :
+  `testCancellationFlexibleNeverFees`,
+  `testCancellationStrictAlwaysFee`,
+  `testCancellationModerateMoreThan48h_NoFee`,
+  `testCancellationModerate24To48h_FirstNight`,
+  `testCancellationModerateLessThan24h_Total`,
+  `testFeeOverrideUsesProvidedAmount`,
+  `testGetCancellationQuoteDoesNotMutate`,
+  `testCancellationCreatesInvoiceWhenFeesPositive`,
+  `testCancellationCreatesNoInvoiceWhenFeesZero`.
+- [x] Functional `RefundTest` (@group integration) — 9 tests :
+  `testReceptionistCanRefund`,
+  `testRefundCreatesNegativePayment` (vérification BDD
+  directe que le 2e Payment a bien `'-20000.00'`),
+  `testRefundUpdatesInvoiceStatusToPartial`,
+  `testRefundFullPaymentReturnsStatusToIssued`,
+  `testRefundExceedingPaidIsRefused` (422 BUSINESS_RULE),
+  `testRefundRequiresReasonMinLength` (422 VALIDATION_ERROR),
+  `testRefundOnUnpaidInvoiceRefused`,
+  `testRefundOnCancelledInvoiceStaysCancelled` (statut figé),
+  `testRefundIsBlockedByNightAuditLockOnToday`,
+  `testHousekeeperCannotRefund` (403).
+- [x] Stratégie cleanup propre : helper `seedInvoice` avec
+  préfixe `FAC-REFTEST-` pour cleanup ciblé, `tearDown` qui
+  purge payments + invoices + audit_logs `payment.refunded`
+  + daily_closes.
+
+**Ajouts notables (Sprint 13quinquies) — décisions et apprentissages**
+- [x] **Décision « Payment négatif + status PAID pour
+  matérialiser une sortie de caisse »** : pas de
+  `PaymentStatus::REFUNDED`. Le pattern simple "Payment avec
+  amount négatif et status PAID" fonctionne naturellement
+  avec `bcadd` qui somme correctement les négatifs. Discrimine
+  via `amount < 0` côté UI. Si un nouveau status `REFUNDED`
+  était ajouté, le filtre `getCompletedPayments` (qui retient
+  PAID uniquement) ne le verrait pas et `getPaidXof` serait
+  faux. Pattern à reproduire pour toute "sortie" comptable
+  qui n'a pas besoin d'être un objet métier séparé.
+- [x] **Décision « facture distincte pour les frais »** : un
+  no-show ou une annulation avec frais crée une NOUVELLE
+  facture (status ISSUED direct, ligne typée
+  `kind: no_show | cancellation`). Pas de modification de la
+  facture draft existante (qui peut ne pas exister, ex : résa
+  annulée avant check-in). Plus propre conceptuellement et
+  permet de discriminer le revenu type "séjour" vs "frais"
+  dans les rapports futurs.
+- [x] **Décision « dry-run quote avant action mutante »** :
+  `GET /cancellation-quote` calcule les frais SANS rien
+  modifier en BDD. L'UI fetch le quote au mount de la modale,
+  affiche les conséquences (politique + délai + frais), puis
+  l'utilisateur confirme via `POST /cancel`. Pattern cohérent
+  avec `GET /night-audit/current` vs `POST /close` du Sprint
+  13quater. À reproduire pour toute action mutante coûteuse
+  ou irréversible.
+- [x] **Décision « override commercial tracé »** : à chaque
+  fois que l'utilisateur surcharge un calcul auto (politique
+  no-show, montant des frais d'annulation), c'est marqué dans
+  l'audit log via `overridden: true` ou `feeOverridden: true`.
+  Permet a posteriori de distinguer "calcul automatique
+  appliqué" vs "geste commercial décidé par le réceptionniste".
+- [x] **Découverte « composant modal doit être robuste à son
+  pattern d'instanciation »** : un composant qui dépend
+  uniquement de `watch(() => props.isOpen)` casse quand le
+  composant est monté via `v-if` avec `isOpen=true` à la
+  création. Solution : combiner `onMounted` (capture la valeur
+  initiale) + `watch` (capture les changements ultérieurs).
+  Pattern à appliquer à tous les composants modales / popovers
+  qui font du fetch piloté par `isOpen`. `MarkNoShowModal`
+  avait déjà la bonne combinaison ; `CancelReservationModal`
+  l'a maintenant aussi.
+- [x] **Découverte « état d'erreur visible obligatoire pour
+  les modales avec fetch »** : un `try / finally` sans `catch`
+  laisse le composant dans un état muet quand le fetch échoue.
+  Pattern à appliquer partout : `try / catch / finally` avec
+  un état `xxxError: ref<string | null>` exposé dans le
+  template via une branche `v-else-if="xxxError"` + bouton
+  "Réessayer". Le silence est un bug.
+
+**Livrable** : le cycle financier complet est désormais
+fonctionnel. Le réceptionniste peut marquer un client absent
+(no-show) avec facturation configurable, annuler une
+réservation avec calcul automatique des frais selon la
+politique tenant, et le manager peut effectuer un
+remboursement tracé sur n'importe quelle facture. L'UI est
+cohérente entre listing et fiche détail, robuste aux erreurs
+réseau, et le calcul des frais est toujours montré à
+l'utilisateur AVANT confirmation (pattern dry-run). Le PMS est
+maintenant prêt à passer en production (Sprint 14) sans aucun
+trou métier financier.
 
 ---
 
-### ⬜ Sprint 14 — Production-ready
-**Objectif** : app blindée, performante, déployée Heroku + Vercel + RDS.
+### ✅ Sprint 14-A.1 — Dettes critiques avant prod
+**Objectif** : nettoyer les dettes techniques accumulées au
+fil des sprints précédents avant la mise en production.
+6 chantiers indépendants, chacun livré dans une session
+séparée pour rester vérifiable.
 
-**Checklist**
-- [ ] Audit sécurité : headers HTTP, rate limiting, signatures webhooks
-- [ ] `make test-security` passe à 100%
-- [ ] Indexes PostgreSQL sur les colonnes fréquemment requêtées
-- [ ] Lazy loading Vue, cache Redis sur les KPIs
-- [ ] Sentry configuré + testé
+**Bilan** : 193 → 413 tests (× 2.14), 0 régression introduite,
+1 régression cachée révélée et corrigée
+(`ReservationPromoTest` dates).
+
+⚠️ Sprint livré en 6 sous-prompts itératifs. La structure
+ci-dessous reflète cette réalité — utile pour relire
+l'historique :
+1. **Chantier 2** : scripts npm + tsconfig + eslint
+2. **Chantier 1** : retrait `@group integration`
+3. **Chantier 5** : audit `catch (\Throwable)` silencieux
+4. **Chantier 4** : `OnboardingService` transactionnel
+5. **Chantier 6** : audit paramètres YAML hardcodés
+6. **Chantier 3** : `FeatureVoter` + `FeatureGuardTest`
+
+**Chantier 2 — Scripts npm + tsconfig + eslint**
+- [x] `frontend/tsconfig.json` créé (extends
+  `@vue/tsconfig/tsconfig.dom.json`, alias `@/*` → `./src/*`,
+  `noUnusedLocals: false` pour ne pas bloquer le build)
+- [x] `frontend/eslint.config.js` créé (flat config eslint 9,
+  règles permissives V1)
+- [x] `"type": "module"` ajouté dans `package.json`
+- [x] Cible Makefile `npm-type-check` ajoutée
+- [x] `make npm-type-check`, `make npm-build`, `make npm-lint`
+  tous verts (0 erreur, 6 warnings ESLint tolérés)
+- [x] 5 bugs typés TypeScript corrigés au passage (à valider
+  robustesse en polish 14-A.3)
+- **Décision** : exclure `vite.config.ts` du tsconfig racine
+  plutôt que d'avoir un `tsconfig.node.json` séparé — plus
+  simple, on perd juste le type-check de ce fichier stable.
+
+**Chantier 1 — Retrait `@group integration`**
+- [x] 44 annotations `@group integration` retirées de
+  `backend/tests/`
+- [x] 1 directive `<group>integration</group>` retirée du
+  bloc `<exclude>` de `phpunit.xml.dist`
+- [x] Cible Makefile `test-integration` conservée (utile en
+  V2 pour re-grouper des tests externes)
+- [x] Tests passés de 193 → 401 (+208 tests intégrés à la
+  suite par défaut)
+- **Régression cachée révélée** : `ReservationPromoTest`
+  avec des dates non actualisées — fixée dans ce chantier.
+
+**Chantier 5 — Audit `catch (\Throwable)` silencieux**
+- [x] 31 occurrences auditées, classifiées en 3 types
+- [x] 4 TYPE 1 (silencieux corrigés en TYPE 2) :
+  - `HealthController` DB probe + Redis probe → ajout
+    `logger->error()` avec contexte (`error`, `class`)
+  - `SubscriptionController::computeUsage` rooms + staff_users
+    → ajout `logger->warning()` avec contexte enrichi
+    (`tenant slug` via `tenantContext->has()`)
+- [x] 2 TYPE 2 (loggé, silence justifié) :
+  `CheckSubscriptionsHandler` et `AbonnementService::checkExpirations`
+  (isolation des erreurs par tenant dans un batch nocturne)
+- [x] 25 TYPE 3 (rethrow ou transformation HTTP) RAS
+- [x] Document d'audit créé :
+  `backend/docs/catch-audit-2026-14.md` (inventaire + patches)
+- **Recommandation backlog** : règle PHPStan ou test
+  reflection-based qui bloque les catch silencieux dans les
+  futurs PRs.
+
+**Chantier 4 — `OnboardingService` transactionnel**
+- [x] Helper privé `dropSchemaSafely()` créé avec validation
+  regex anti-injection + try/catch sur le DROP lui-même
+- [x] `register()` refactorée avec
+  `beginTransaction()`/`commit()`/`rollback()`, schema name
+  capturé après le flush du tenant, OTP positionné APRÈS
+  commit (panne Mailjet ne doit pas annuler l'inscription)
+- [x] `provision()` refactorée avec le même pattern (sans
+  OTP), seed à l'intérieur du search_path tenant
+- [x] `LoggerInterface` injecté dans le constructor
+- [x] 3 tests fonctionnels créés (`OnboardingTransactionalTest`) :
+  - `testRegisterRollsBackWhenAbonnementServiceFails`
+    (mock `AbonnementService::createTrial` → throw)
+  - `testProvisionRollsBackWhenSubscriptionFails`
+    (mock `AbonnementService::createActive` — adaptation
+    faite parce que `TenantSeedService` est `final` et donc
+    non-mockable par PHPUnit 11)
+  - `testProvisionWithUnknownPlanDoesNotProvisionSchema`
+    (cas RÉEL sans mock — plan inexistant)
+- [x] Pattern `baselineOrphanSchemas` au setUp pour ne
+  mesurer QUE les nouveaux orphelins créés par le test
+  (évite faux positifs en CI dus aux résidus d'autres tests)
+- [x] 404 tests verts, 0 orphan détecté par
+  `cleanup-orphans --dry-run`
+
+**Chantier 6 — Audit paramètres YAML hardcodés**
+- [x] 25 fichiers YAML inventoriés (`services.yaml`,
+  `routes.yaml`, 22 packages, 1 override test)
+- [x] 19 références `%env(VAR)%` croisées avec `backend/.env`
+  — toutes documentées
+- [x] 0 migration nécessaire (fix Sprint 12 avait fait le
+  ménage principal sur `default_backend_url`)
+- [x] Document d'audit créé :
+  `backend/docs/yaml-audit-2026-14.md` (tableau exhaustif
+  par fichier + synthèse des constantes légitimes)
+- [x] Cas marginal documenté : `VAR_DUMPER_SERVER`
+  (`debug.yaml` dev-only) — défaut interne Symfony
+  Debug Bundle `127.0.0.1:9912`, pas besoin d'ajouter à
+  `.env`
+- **Recommandations backlog** : pre-commit hook yaml↔.env,
+  cleanup nelmio_cors via `when@dev:`/`when@prod:`, audit
+  `.env` côté prod au déploiement Heroku.
+
+**Chantier 3 — FeatureVoter + FeatureGuardTest**
+- [x] `FeatureVoter` créé
+  (`Platform/Subscription/Security/Voter/`)
+- [x] 11 call sites refactorés (le backlog en estimait 4,
+  découverte d'audit à 11) :
+  - `RateController` : 6 méthodes
+    (create/update/delete Plan + Seasonal) ←
+    `FEATURE_revenue_management`
+  - `PromotionController` : 3 méthodes (create/update/delete)
+    ← `FEATURE_revenue_management`
+  - `DashboardController` : 2 méthodes (report + export) ←
+    `FEATURE_advanced_reports`
+- [x] Import `FeatureChecker` et injection retirés des 3
+  controllers (plus utilisés en direct)
+- [x] `FeatureGuardTest` global créé (13 tests) :
+  - 5 tests STARTER strict (`assertFeatureBlocked` : 403 +
+    `PLAN_LIMIT` + message contenant « fonctionnalité »)
+  - 6 tests STARTER lax (`assertEndpointBlocked` : 403 OU
+    404 NOT_FOUND — voir leçon d'archi ParamConverter)
+  - 2 tests PRO (`assertFeatureAllowed` :
+    `assertNotSame(403)`)
+- [x] Ancien `tests/Functional/Api/Subscription/FeatureGuardTest.php`
+  (4 tests) supprimé car entièrement subsumé
+- [x] 413 tests verts (404 + 13 − 4)
+
+**Décisions techniques (Sprint 14-A.1)**
+- **Pattern `FEATURE_<name>` au lieu de `('FEATURE', '<name>')`** :
+  la syntaxe orthodoxe ne fonctionne pas en l'état — Symfony
+  interprète le second argument d'`IsGranted` comme un nom
+  d'argument du contrôleur. Contournements possibles :
+  `new Expression("'...'")` (requiert
+  `symfony/expression-language`) ou encoder la feature dans
+  le nom (`FEATURE_<name>` avec
+  `ATTRIBUTE_PREFIX = 'FEATURE_'` + `str_starts_with` +
+  `substr`). Choix retenu : le second, sans dépendance
+  ajoutée. Documenté dans le DocBlock du voter.
+- **Voter qui THROW au lieu de RETURN false** : préserve le
+  message custom de `FeatureNotAvailableException` + le code
+  HTTP 403 + le code métier `PLAN_LIMIT` mappé par
+  `ApiExceptionListener`. Retourner false aurait fait lever
+  `AccessDeniedException` générique avec un message
+  "Accès refusé" sans le nom de la feature.
+- **DROP SCHEMA défensif dans le rollback `OnboardingService`** :
+  même si en théorie PostgreSQL annule le `CREATE SCHEMA`
+  lors d'un rollback, le Sprint 13ter a observé 24 schemas
+  orphelins en pratique. Défense en profondeur — on combine
+  transaction Doctrine + DROP explicite avec validation
+  regex anti-injection.
+- **OTP `register()` placé APRÈS `commit()`** : un échec
+  Mailjet ne doit pas annuler l'inscription du tenant. Si
+  OTP rate, l'utilisateur pourra demander un renvoi via l'UI.
+  Pattern cohérent avec les autres flows secondaires
+  non-bloquants (Sprint 12).
+- **`baselineOrphanSchemas` pattern dans les tests** :
+  capturer au setUp les orphelins préexistants pour ne
+  mesurer QUE les nouveaux créés par le test. Évite que
+  les tests échouent à cause de résidus d'autres tests qui
+  ne nettoient pas.
+
+**Livrable** : code production-ready côté qualité technique.
+Suite de tests honnête (plus de masquage par
+`@group integration`), feature-gating déclaratif via voter,
+onboarding transactionnel avec garde-fou anti-injection,
+build TypeScript fonctionnel, 2 documents d'audit comme
+artéfacts de revue.
+
+---
+
+### ✅ Sprint 14-A.2 — UI manager politiques financières
+**Objectif** : permettre au manager de configurer via UI les
+3 paramètres financiers stockés dans `tenant.settings` JSON
+(no_show_policy, cancellation_policy, business_day_cutoff_hour)
+au lieu de modifier en BDD directement. Sprint court (~1 jour
+effectif) avec un seul périmètre cohérent.
+
+**Backend**
+- [x] `App\Platform\Tenant\Application\DTO\UpdateTenantSettingsDTO`
+  créé. Tous les champs OPTIONNELS pour PATCH partiel. Pattern
+  `mixed` (au lieu de `?int`) sur `businessDayCutoffHour` pour
+  permettre à `Assert\Type('integer')` de rejeter proprement
+  les chaînes avec un message FR au lieu d'un TypeError PHP
+  natif. Messages d'erreur FR custom sur les 3 contraintes.
+- [x] `TenantSettingsController::updateSettings` ajouté —
+  endpoint `PATCH /api/tenant/settings`. RBAC en vérif manuelle
+  (`isGranted('ROLE_MANAGER')`) plutôt qu'attribut `IsGranted`
+  au niveau méthode pour préserver le message FR custom et le
+  code d'erreur `ACCESS_DENIED` (pattern cohérent avec
+  `FeatureVoter` du Sprint 14-A.1).
+- [x] Pattern `array_key_exists` au lieu de `isset` pour
+  distinguer "champ absent" de "champ explicitement à null"
+  (important pour un PATCH partiel).
+- [x] Helper privé `serializeSettings()` factorise la
+  sérialisation GET et PATCH retour (DRY).
+- [x] Pas de cast int sur `businessDayCutoffHour` : laisse
+  `Assert\Type` rejeter `"5"` (string) avec un 422
+  VALIDATION_ERROR plutôt qu'un cast silencieux à `5`.
+- [x] Audit log `tenant.settings_updated` avec diff
+  `before`/`after` uniquement sur les champs CHANGÉS. Skippé
+  si aucun changement effectif (pas d'entrée fantôme).
+- [x] Méthode statique `values()` ajoutée aux enums
+  `NoShowPolicy` et `CancellationPolicy` (pattern hérité de
+  `PaymentMethod::values()` du Sprint 13quinquies-B).
+- [x] `DailyCloseService::getCurrent()` étendu — `cutoffHour`
+  ajouté dans les 4 chemins de retour (calculé une seule fois
+  en haut, injecté partout). PHPDoc mis à jour.
+
+**Frontend**
+- [x] `tenant-settings.service.ts` étendu avec `update()` +
+  type `TenantSettingsUpdatePayload` qui dérive ses champs de
+  `TenantSettings` (DRY).
+- [x] Type `NightAuditCurrent` étendu avec `cutoffHour: number`
+  + commentaire référençant le Sprint 14-A.2.
+- [x] `HotelConfigurationView.vue` étendu avec un 4e onglet
+  "Finances" (passage de 3 → 4 onglets) :
+  - State encapsulé : `financeSettings` (source de vérité
+    serveur), `financeDraft` (édition locale),
+    `financeHasChanges` computed sur les 3 champs,
+    `financeSaving` / `financeError`.
+  - 3 selects (no-show 3 options, cancellation 3 options,
+    cutoff 24 valeurs 0-23h) avec hints explicatifs riches
+    (matrice de la politique modérée détaillée par exemple).
+  - Boutons "Annuler les modifications" / "Enregistrer"
+    disabled si pas de changement effectif ou sauvegarde en
+    cours.
+  - Gestion des 3 états visuels : erreur (avec bouton
+    Réessayer) / prêt / chargement.
+  - CSS dédié `.form-row .input-label` : `text-transform:none`,
+    `font-size:13px` (plus lisible que les uppercase 11px des
+    tables).
+- [x] `NightAuditView.vue` : fix de la dette "5h" hardcodée —
+  remplacé par `{{ current.cutoffHour }}` (à 2 endroits dans
+  la même phrase).
+- [x] `onMounted` de `HotelConfigurationView` étendu avec
+  `refreshFinanceSettings()` dans le `Promise.all` (parallélise
+  les 5 requêtes initiales).
+
+**Tests**
+- [x] `tests/Functional/Api/Tenant/TenantSettingsControllerTest`
+  créé — 10 tests :
+  - `testGetSettingsRequiresAuthentication` (401 sans JWT)
+  - `testGetSettingsReturnsAllFields` (200 + 5 champs)
+  - `testPatchSettingsRequiresManagerRole` (403 réceptionniste)
+  - `testPatchSettingsAcceptsFullPayload` (200 + 3 changements
+    en BDD + audit log avec 3 diffs)
+  - `testPatchSettingsAcceptsPartialPayload` (200 + 1 seul
+    champ changé + audit log avec 1 seul diff)
+  - `testPatchSettingsRejectsInvalidEnum` (422
+    VALIDATION_ERROR)
+  - `testPatchSettingsRejectsInvalidCutoffHour` (422 range)
+  - `testPatchSettingsRejectsEmptyPayload` (422 BUSINESS_RULE)
+  - `testPatchSettingsNoOpDoesNotWriteAudit` (200 mais 0 audit
+    log créé)
+  - `testPatchSettingsIsCrossTenantIsolated` (Savana change
+    n'impacte pas Villa Collines)
+- [x] `setUp/tearDown` : restore les valeurs par défaut sur
+  les 2 tenants (savana + villa-collines) via JSON merge
+  operator PostgreSQL `||` (préserve les autres clés du
+  settings JSON, ne pollue pas les autres tests) +
+  `em->clear()` pour invalider le cache Doctrine. Purge des
+  audit logs `tenant.settings_updated` du schema savana.
+- [x] PAS de `@group integration` (cohérent avec Chantier 1
+  du Sprint 14-A.1).
+- [x] 413 → 423 tests verts (+10).
+
+**Décisions techniques (Sprint 14-A.2)**
+- **`mixed` au lieu de `?int` pour les champs DTO validés
+  par `Assert\Type`** : si `?int`, l'assignation `$dto->x = "25"`
+  throw un `TypeError` PHP natif AVANT que `Assert\Type` puisse
+  rejeter proprement avec un message FR. Avec `mixed`,
+  l'assignation passe, le validateur retourne un 422
+  VALIDATION_ERROR explicite. Pattern à reproduire pour tout
+  DTO Symfony Validator qui doit valider des types qui ne
+  matchent pas le typage PHP.
+- **`array_key_exists` au lieu de `isset` pour les PATCH
+  partiels** : `isset` retourne `false` pour une clé
+  explicitement à `null`, ce qui empêche de distinguer "champ
+  absent" de "champ explicitement nullifié". Pour un PATCH
+  REST où l'absence et le null peuvent avoir des sémantiques
+  différentes, `array_key_exists` est obligatoire.
+- **RBAC en vérif manuelle plutôt qu'attribut `IsGranted`** :
+  même pattern que le `FeatureVoter` du Sprint 14-A.1 — quand
+  on veut un message FR custom et un code d'erreur API custom
+  (`ACCESS_DENIED` ici, `PLAN_LIMIT` pour le voter), la vérif
+  manuelle dans le controller est préférable à l'attribut
+  Symfony qui retourne un `AccessDeniedException` générique.
+- **Audit log skippé si aucun changement effectif** : un PATCH
+  avec les MÊMES valeurs que les valeurs courantes retourne 200
+  mais n'écrit AUCUNE entrée d'audit log. Évite la pollution
+  par des updates fantômes. Pattern cohérent avec
+  `SuperAdminController::updateTenant` (Sprint 13bis-B).
+- **`cutoffHour` calculé une seule fois en haut de
+  `getCurrent()`** : variable locale réutilisée dans les 4
+  chemins de retour (au lieu de 4 appels
+  `$tenant->getBusinessDayCutoffHour()`). Lecture plus claire
+  et perfs marginalement meilleures.
+
+**Livrable** : un manager hôtel peut désormais configurer les
+3 politiques financières (no-show, annulation, cutoff
+comptable) depuis l'UI sans toucher à la BDD. Les changements
+se propagent immédiatement aux modales d'annulation (calcul
+des frais selon la nouvelle politique) et à la vue Night
+Audit (affichage du cutoff configuré). Plus aucune dette type
+"valeur hardcodée côté front décorrélée du backend" sur les
+politiques financières.
+
+---
+
+### 🔧 Hotfix critique — HotelProfile à l'onboarding (entre 14-A.2 et 14-A.3)
+
+**Contexte** : bug "Profil hôtel introuvable" découvert pendant
+le smoke test du Sprint 14-A.2 sur le tenant balladin. Toute
+opération passant par `ReservationEngine::computeQuote()`
+(création/modification de réservation, no-show avec frais,
+annulation avec frais) lançait une `BusinessRuleException`.
+
+**Cause racine** : `OnboardingService::register()` (inscription
+publique) ET `OnboardingService::provision()` (création
+SuperAdmin) NE créaient PAS de `HotelProfile`. `TenantSeedService`
+non plus, peu importe le template. Le `HotelProfile` était
+créé UNIQUEMENT par `HotelDataFixtures` (fixtures dev) — d'où
+le fonctionnement OK de Savana/Villa Collines en local mais
+casse de balladin et de tout futur tenant créé en prod.
+
+**Impact pré-correction** : bug bloquant pour la prod. Aucun
+client provisionné via SuperAdmin ne pouvait faire de
+réservation.
+
+**Correction (2 niveaux)** :
+- [x] Commande Symfony `stayos:tenant:ensure-hotel-profile`
+  (`Platform/Tenant/Application/Command/EnsureHotelProfileCommand`)
+  — idempotente, mode `--dry-run`, traite tous les tenants
+  non-CHURNED. Pattern try/finally sur SET search_path +
+  `em->clear()` entre tenants. Réparation curative pour
+  balladin + test-new-tenant + outil de réparation V2.
+- [x] Modification `OnboardingService::register/provision`
+  pour créer un `HotelProfile` par défaut dans le même
+  `try { SET search_path }` block que le StaffUser, AVANT
+  le seed (cohérence si un futur seed dépendait du profil).
+  Le `name` du HotelProfile = `tenant.name`, autres champs
+  aux defaults entité (`country='SN'`, `checkInTime='14:00'`,
+  `checkOutTime='11:00'`).
+- [x] Tests étendus : `testRegisterCreatesHotelProfile` +
+  `testProvisionCreatesHotelProfile` + helper privé
+  `cleanupTenant($tenantId, $schemaName)` qui purge
+  subscriptions → tenants → DROP SCHEMA (avec regex
+  anti-injection) pour les tests success.
+
+**Validation runtime** : dry-run → balladin=WOULD CREATE ✓,
+apply → CREATED ✓, re-run → tous OK (idempotence
+confirmée). 425 tests verts. Smoke test création de
+réservation sur balladin : OK.
+
+**Leçon retenue** : voir leçons d'architecture (tester
+l'onboarding end-to-end avec un tenant fraîchement
+provisionné, pas seulement avec les fixtures dev).
+
+---
+
+### ✅ Sprint 14-A.3 — Cohérence et polish
+
+**Objectif** : nettoyer les ~17 dettes mineures accumulées
+avant la prod (audit logs, normalisation, UX frontend,
+hygiène config). Sprint dense découpé en **5 sous-paquets**
+attaqués séquentiellement pour rester vérifiable :
+
+1. **A.1 — Cohérence audit logs** (3 dettes)
+2. **A.2 — Cohérence métier backend** (3 dettes + 1 obsolète
+   retirée)
+3. **B.1 — Cohérence UX frontend** (4 dettes)
+4. **B.2 — Hygiène technique frontend/config** (4 dettes)
+5. **C.1 — Outillage et bugs** (5 dettes)
+
+**Bilan global** : 429 tests verts (+5 nouveaux), 1609
+assertions, 2 runs successifs identiques (déterminisme),
+0 régression, 16 dettes traitées.
+
+---
+
+**A.1 — Cohérence audit logs (3 dettes, 4+11+11 call sites)**
+- [x] Fix `entityId='new'` dans audit logs (4 services) :
+  `ReservationEngine::create`, `DailyCloseService` (×2 :
+  close + reopen pattern), `InvoiceService::refundPayment`,
+  `FeeInvoiceService`. Remplacement de `'new'` littéral par
+  `(string) $entity->getId()` après le `persist()` (l'ID est
+  disponible dès le persist avec UuidV4Generator custom
+  Doctrine, pas besoin d'attendre le flush).
+- [x] Normalisation `entityType` PascalCase (11 call sites) :
+  `daily_close → DailyClose`, `staff_invitation →
+  StaffInvitation`, `staff_user → StaffUser`, `tenant →
+  Tenant`. Convention alignée sur les noms de classes
+  Doctrine (cohérence avec `Reservation`, `Invoice`,
+  `HotelProfile` déjà en PascalCase).
+- [x] Uniformisation contexte logs `catch` (11 call sites) :
+  ajout de `'class' => $e::class` partout (suite Chantier 5
+  Sprint 14-A.1). `MercurePublisher` non touché — il utilise
+  déjà `get_class($e)`, équivalent fonctionnel.
+- [x] 2 tests dédiés : `testCreateReservationLogsAuditWithRealEntityId`
+  (capture des arguments via `willReturnCallback`,
+  assertion `assertNotSame('new')` + `assertSame((string) $reservation->getId())`)
+  et `testRefundLogsAuditWithRealEntityId`.
+
+**A.2 — Cohérence métier backend (3 dettes + 1 obsolète)**
+- [x] Renommage `cancelledTenantsCount` → `churnedTenantsCount`
+  dans `PlatformMetrics` DTO + `PlatformMetricsService::compute`
+  + frontend (`PlatformMetricsView`, `TenantsListView`, type
+  `superadmin.ts`). Libellé UI passé de "Désabonnés" à
+  "Résiliés" (cohérent avec "Actifs"/"Suspendus"). Le champ
+  comptait en réalité les tenants `CHURNED` — nom maintenant
+  aligné avec ce qu'il compte. Pas d'alignement enum
+  CHURNED/cancelled (sémantiquement différents — état tenant
+  final vs état subscription transactionnel).
+- [x] Factorisation `SaasInvoiceService::buildTenantUrl` →
+  `TenantUrlBuilder::build` (2 call sites + suppression
+  méthode privée + retrait du commentaire de dette dans
+  `TenantUrlBuilder`). Le builder est désormais utilisé par
+  `SaasInvoiceService` et `EmailService::sendStaffInvitation`.
+- [x] Garde-fou backend no-show futur :
+  `ReservationEngine::markNoShow` refuse désormais une résa
+  dont `checkIn > businessDate` (comparaison `>` strict,
+  `checkIn = today` reste valide). Défense en profondeur
+  côté serveur (le frontend filtrait déjà via
+  `canMarkNoShow`). Test
+  `testNoShowOnFutureCheckInRefused` ajouté avec helper
+  `seedConfirmedArrivingInFuture(+5 jours)`.
+- [x] **Dette obsolète identifiée et retirée du backlog** :
+  "MOBILE_MONEY CHECK constraint SQL manquante" — vérification
+  faite, la migration `Version20260520170000UpdatePaymentMethodCheck`
+  (Sprint 7) inclut déjà `'mobile_money'` dans le CHECK.
+  Dette résolue depuis longtemps, conservée par inertie
+  dans le backlog. Retirée à la clôture.
+
+**B.1 — Cohérence UX frontend (4 dettes)**
+- [x] Uniformisation feedback `flash() / flashError()` →
+  `pushUiToast()` (4 vues refactorées) : `InvoiceDetailView`,
+  `TenantDetailView`, `StaffListView`, `TaskCard.vue`
+  (housekeeping). Refs `successMsg / errorMsg` retirées,
+  divs styled inline retirés, CSS dédié retiré. La
+  distinction "feedback transitoire" (→ toast) vs "état de
+  page" (`paymentReturn` bandeau persistant, `error`
+  "Facture introuvable") est préservée.
+- [x] Fix anti-spam toasts rafale 4+ dans
+  `notifications.store.ts` : ajout d'un champ explicite
+  `groupedCount?: number` sur `ToastEntry`. La logique
+  `pushToast` détecte d'abord un toast déjà-groupé du même
+  type dans la fenêtre (incrémente son count + met à jour
+  le titre), puis seulement après applique la logique
+  existante de grouping initial. Le 4e+ toast d'une rafale
+  est désormais correctement fusionné.
+- [x] `lastEffectiveClose` indépendant de la pagination dans
+  `NightAuditView.vue` : `computed` remplacé par un `ref`
+  mis à jour UNIQUEMENT dans `reload()` (qui force
+  `page.value = 1`). `changePage` ne le touche plus. Le
+  bouton "Réouvrir" cible toujours la vraie dernière close,
+  même en page 2+.
+- [x] Doublon `disconnect()` au logout retiré dans
+  `auth.store.ts` : l'appel explicite à
+  `useNotificationsStore().disconnect()` est retiré du
+  `logout()`. Le `watch(auth.isAuthenticated)` dans
+  `App.vue` reste la voie canonique (couvre tous les cas :
+  logout manuel, expiration JWT, redirection 401).
+
+**B.2 — Hygiène technique frontend/config (4 dettes)**
+- [x] 6 warnings ESLint `catch (e: any)` → `catch (e: unknown)`
+  + helper `extractError(e, fallback)` avec type-guard. 6 → 0
+  warnings.
+- [x] Audit des 5 bugs TypeScript du Chantier 2 (Sprint
+  14-A.1) : Sprint 14-A.1 non committé en git, audit basé
+  sur l'état présent. 3 patterns identifiés et jugés
+  acceptables (`api.service.ts` Promise élargie + cast
+  `as never` sur axios overloads, `TenantDetailView` cast
+  `as unknown as { timezone?: string }`). Recommandation
+  noté au backlog : ajouter `timezone?: string` au type
+  `TenantDetail` à la prochaine touche du module SuperAdmin.
+- [x] TVA en bcmath dans snapshot night audit :
+  `InvoiceRepository::countAndSumIssuedForDate` étendu avec
+  un 3e champ `vat` (`COALESCE(SUM(i.taxXof), 0)`).
+  `DailyCloseService::buildSnapshot` injecte `'vatXof' =>
+  $invoicesIssued['vat']` dans `snapshot.invoices`. Template
+  Twig `daily_close_pdf.html.twig` lit `invoices.vatXof|default(null)`
+  → affiche "Dont TVA" (sans `≈`) si présent, fallback float
+  TTC/1.18×0.18 pour les snapshots pré-14-A.3 (invariant
+  d'immutabilité respecté). Test
+  `testSnapshotIncludesExactVatXofFromIssuedInvoices` avec
+  seed 3 invoices et taxXof connus.
+- [x] Refacto `nelmio_cors.yaml` via `when@dev/test/prod` :
+  section principale avec règles communes (methods, headers,
+  max_age) sans aucun `allow_origin`. Les origins sont
+  scopés par environnement. Pas d'origin dev exposable en
+  prod par inadvertance.
+
+**C.1 — Outillage et bugs (5 dettes)**
+- [x] Flakiness `CancellationWithFeesTest` corrigée — la
+  colonne `reservations.check_in` est `date_immutable` (DATE
+  sans heure), donc le helper qui formatait `now + Xh` →
+  `Y-m-d` perdait la composante horaire et retombait à
+  minuit. Helper réécrit pour calculer
+  `daysAhead = max(1, ceil(hoursOffset / 24))` et poser
+  `check_in = today + N jours à minuit Africa/Dakar`. Bande
+  visée garantie peu importe l'heure d'exécution. 2 runs
+  successifs identiques (déterminisme prouvé).
+- [x] Fix Lexik rate limiter login : `LoginRateLimitListener`
+  (`Platform/Auth/Infrastructure/EventListener/`) sur l'event
+  `lexik_jwt_authentication.on_authentication_failure`.
+  Détection de `TooManyLoginAttemptsAuthenticationException`
+  sur deux chemins (`$exception` direct OU `getPrevious()`).
+  Renvoi 429 RATE_LIMITED. Pool dédié
+  `cache.rate_limiter: filesystem` ajouté en env test (le
+  cache `array` ne survit pas au reboot kernel).
+  `testLoginRateLimitAfterFiveAttempts` réactivé (3 → 2
+  tests skippés) avec `$client->disableReboot()` + email
+  unique + clear `cache.rate_limiter` en setUp pour
+  isolation.
+- [x] Suppression PUT legacy `/api/rooms/types/{typeId}` :
+  `RoomController::updateType` retirée + import
+  `UpdateRoomTypeDTO` retiré. `RoomTypeController::update`
+  (`PUT /api/room-types/{id}`) reste canonique. GET legacy
+  `/api/rooms/types` conservé pour l'instant (à auditer
+  séparément — entrée backlog).
+- [x] `#[\Deprecated]` sur `StaffUser::eraseCredentials()` :
+  attribut natif PHP 8.4 (`since: '7.3'`) + PHPDoc
+  `@deprecated`. La méthode reste vide (comportement
+  préservé). Sera retirée à la migration Symfony 8.
+- [x] Élimination deprecation `exposeSecurityErrors`
+  (476×/run → 0) : `symfony/security-bundle 7.3` passe
+  `param('security.authentication.hide_user_not_found')`
+  (boolean) à `AuthenticatorManager::__construct` dont la
+  signature attend désormais `ExposeSecurityLevel|bool`.
+  Override du paramètre dans `services.yaml` avec
+  `!php/enum Symfony\Component\Security\Http\Authentication\ExposeSecurityLevel::None`
+  (équivalent sémantique de `hide_user_not_found: true`).
+  Comportement de sécurité préservé.
+
+**Livrable** : projet désormais cohérent (audit logs,
+vocabulaire métier, UX), robuste (TVA exacte, garde-fous
+serveur, anti-spam toasts), hygiénique (0 warning ESLint,
+0 deprecation `exposeSecurityErrors`, configs Symfony
+`when@*`), déterministe (tests temporels figés, isolation
+Redis rate-limiter), outillé (commande `ensure-hotel-profile`,
+listener rate limit).
+
+Le projet est prêt à passer au Sprint 14-B (sécurité
+production).
+
+---
+
+### ✅ Sprint 14-B — Sécurité et performance
+
+**Objectif** : durcir l'application pour la production.
+Sprint découpé en **2 grands volets** attaqués séquentiellement,
+chacun en sous-paquets vérifiables :
+
+1. **B.1 — Sécurité** (headers HTTP, rate limiting global,
+   vérification IPN Paydunya)
+2. **B.2 — Performance & monitoring** (Mercure prod, cache
+   Redis KPIs, indexes PostgreSQL)
+
+**Bilan global** : 429 → 465 tests verts (+36 nouveaux,
+2 hotfixes inclus), 0 régression, application durcie pour
+la prod (headers stricts, rate limiting global 4 limiters,
+IPN Paydunya signé SHA-512, Mercure JWT subscriber scopé
+tenant, cache Redis KPIs invalidé au night audit, indexes
+ciblés sur les requêtes analytics).
+
+---
+
+**B.1.1 — Headers HTTP de sécurité + Sentry backend**
+- [x] `SecurityHeadersSubscriber` : pose à chaque réponse
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: strict-origin-when-cross-origin`,
+  `Permissions-Policy` minimaliste, CSP backend ultra-strict
+  (`default-src 'none'` — l'API ne sert que du JSON, aucune
+  ressource HTML/JS). `Strict-Transport-Security` posé
+  uniquement en prod (HTTPS effectif).
+- [x] SDK Sentry backend (`sentry/sentry-symfony`) câblé,
+  DSN lu depuis `SENTRY_DSN` (no-op si vide → dev/test
+  silencieux). Contexte tenant ajouté via `before_send`.
+- [x] +3 tests : `SecurityHeadersTest` couvre la présence
+  des headers attendus sur `/api/health` et l'absence de
+  HSTS en env test.
+
+---
+
+**B.1.2.1 — Rate limiting global étendu**
+- [x] 4 limiters configurés (`config/packages/rate_limiter.yaml`) :
+  `api_read` (300/min, sliding window), `api_write`
+  (60/min, sliding window), `webhooks` (100/min, sliding
+  window), `otp_resend` (3 / 10min, fixed window).
+  S'ajoute aux limiters préexistants `login` et
+  `register` (Sprint 2).
+- [x] `RateLimitSubscriber` (event `kernel.request`,
+  priorité haute) sélectionne le limiter selon la route et
+  la méthode HTTP. Clé = IP client. Renvoi 429
+  `RATE_LIMITED` via `TooManyRequestsHttpException` (mappé
+  par `ApiExceptionListener`).
+- [x] `framework.trusted_proxies` configuré (lecture
+  `REMOTE_ADDR` côté Heroku → vraie IP via `X-Forwarded-For`).
+- [x] +5 tests : un test par limiter + un test trusted_proxies
+  (lecture correcte de l'IP derrière proxy).
+
+---
+
+**B.1.2.2 — Vérification hash SHA-512 MasterKey IPN Paydunya**
+- [x] `PaydunyaWebhookHandler` vérifie désormais le hash
+  SHA-512 `hash('sha512', master_key)` envoyé dans le
+  payload IPN. Rejet en 401 si non-conforme. La
+  reconfirmation serveur via l'API Paydunya
+  (`checkInvoice`) reste la source de vérité (jamais de
+  confiance dans le seul payload — voir `security.md`).
+- [x] Flag `PAYDUNYA_HASH_VERIFICATION_ENABLED`
+  (`services.yaml` lit env) pour désactiver la vérification
+  en dev/test (Paydunya ne signe pas en sandbox local).
+  Activé par défaut, désactivé via `.env.test`.
+- [x] +9 tests : hash valide / invalide / absent /
+  désactivé via flag, sur les deux flux (SaaS invoice et
+  hotel invoice) + cas reconfirmation API échoue malgré
+  hash valide.
+
+---
+
+### 🔧 Hotfix — Garde-fou check-in sur réservation expirée (pendant 14-B)
+
+**Contexte** : garde-fou métier manquant détecté entre
+14-B.1.2.2 et 14-B.2 lors d'un smoke test. Une réservation
+dont la `checkOut` était déjà passée (client qui ne s'est
+jamais présenté, oubli de no-show) pouvait quand même être
+check-in, créant des états incohérents (séjour rétroactif,
+night audit corrompu).
+
+**Cause racine** : `ReservationEngine::checkIn` validait
+l'état (`status === CONFIRMED`) mais pas la fenêtre temporelle
+de la réservation. Symétrique au cas no-show futur traité au
+14-A.3 A.2 (`markNoShow` refuse `checkIn > today`) — l'autre
+borne manquait.
+
+**Impact pré-correction** : risque de corruption métier sur
+les réservations oubliées. Cas rare en pratique mais bloquant
+pour la cohérence du night audit.
+
+**Correction** :
+- [x] `ReservationEngine::checkIn` refuse désormais une
+  réservation dont `checkOut < businessDate` (date de départ
+  déjà passée). `BusinessRuleException` levée (422).
+  `checkOut = today` reste valide (départ prévu le jour
+  même).
+- [x] +2 tests : `testCheckInOnExpiredReservationRefused`
+  (checkOut J-1 → 422) + `testCheckInOnSameDayCheckoutAllowed`
+  (checkOut = today → OK).
+
+**Validation runtime** : run complet vert, aucune
+régression sur les flux check-in nominaux.
+
+**Leçon retenue** : voir leçons d'architecture — pattern des
+garde-fous métier **symétriques**. Quand on ajoute une borne
+temporelle d'un côté (`markNoShow` refuse futur), vérifier
+systématiquement l'autre borne (`checkIn` doit refuser passé).
+
+---
+
+### 🔧 Hotfix — Garde-fous dates création/modification réservation (pendant 14-B)
+
+**Contexte** : dates aberrantes acceptées à la
+création/modification de réservation (ex : `checkOut` dans
+le passé, `checkIn` très ancien). Détecté en revue manuelle
+après le hotfix check-in.
+
+**Cause racine** : `ReservationEngine::create` et `update`
+validaient `checkOut > checkIn` (DTO) mais sans borne basse
+absolue par rapport à `businessDate`. Le frontend
+filtrait déjà les dates passées dans le picker — défense en
+profondeur côté serveur manquante.
+
+**Impact pré-correction** : un appel API direct (Postman,
+client tiers, bug front) pouvait créer une réservation
+historique invalide.
+
+**Correction** :
+- [x] `create` et `update` refusent désormais
+  `checkOut < businessDate` (jamais de séjour entièrement
+  dans le passé) et `checkIn < businessDate - 30 jours` si
+  le flag `enforceCheckInWindow` est actif (fenêtre
+  d'ouverture rétroactive limitée à 30 jours pour
+  l'encodage des walk-ins oubliés). `BusinessRuleException`
+  levée (422).
+- [x] +5 tests : checkOut passé refusé, checkIn très
+  ancien refusé avec flag actif, checkIn ancien accepté
+  avec flag désactivé, modification d'une résa existante
+  vers le passé refusée, walk-in J-1 (cas légitime)
+  accepté.
+
+**Validation runtime** : run complet vert, smoke test sur
+les flux nominaux (création standard, modification dates
+futures, walk-in J0) inchangé.
+
+**Leçon retenue** : voir leçons d'architecture — la
+validation DTO (`checkOut > checkIn`) couvre la cohérence
+relative entre champs, mais ne remplace PAS les bornes
+métier absolues (par rapport à `businessDate`). Toujours
+ajouter les deux niveaux dans le service métier.
+
+---
+
+**B.2.1 — Mercure durcissement prod (JWT subscriber)**
+- [x] `MercureSubscriberTokenService`
+  (`Shared/Mercure/Service/`) génère un JWT subscriber
+  scopé tenant : claim `mercure.subscribe` listant
+  uniquement les topics `/hotel/{tenantId}/{event}` du
+  tenant courant. Expiration 1h, signé avec
+  `MERCURE_JWT_SECRET` (même secret que le hub — config
+  partagée).
+- [x] `MercureTokenController` expose
+  `GET /api/mercure/token` (RBAC staff) : pose un cookie
+  httpOnly `mercureAuthorization` (domaine et `secure`
+  conditionnels) avec le JWT. EventSource côté front
+  s'authentifie automatiquement via le cookie.
+- [x] Binding `services.yaml` : `mercure.cookie.secure`
+  et `mercure.cookie.domain` paramétrés différemment en
+  dev (`secure: false`, domaine localhost) vs prod
+  (`secure: true`, domaine `.getstayos.com`).
+- [x] Refacto frontend `mercure.service.ts` :
+  `ensureToken()` async appelé avant chaque `connect()`,
+  `withCredentials: true` sur EventSource, timer de
+  refresh à T-5min, `reset()` au logout (nettoie cookie
+  et déconnecte la source).
+- [x] CORS : `allow_credentials: true` ajouté sur la
+  section `/api` de `nelmio_cors.yaml` (sinon le cookie
+  Mercure n'est pas posé par le navigateur).
+- [x] Le hub Mercure reste `anonymous=true` en dev — la
+  bascule `anonymous=false` côté Caddy est prévue en
+  14-C (en même temps que TLS Let's Encrypt et
+  `publish_origins` restreint).
+- [x] +7 tests : génération token (claims corrects, exp,
+  scope tenant), endpoint expose cookie httpOnly,
+  refresh remplace le token, RBAC bloque les non-staff,
+  CORS allow_credentials présent, reset() nettoie l'état.
+
+---
+
+**B.2.2 — Cache Redis KPIs dashboard**
+- [x] Pool `kpi.cache` dédié (`config/packages/cache.yaml`) :
+  adapter Redis via `REDIS_URL` en dev/prod, adapter
+  array en test (déterminisme + isolation).
+- [x] `KpiService::dashboardForDateCached()` ajouté à
+  côté de `dashboardForDate()` (qui reste NON caché).
+  Clé `kpi_dashboard_{tenantId}_{Y-m-d}` (scope tenant
+  obligatoire — sinon fuite cross-tenant). TTL adaptatif :
+  300s pour la date du jour (rafraîchissement raisonnable
+  pendant la journée), 86400s pour les dates passées
+  (figées), bypass complet pour les dates futures (jamais
+  pertinent à cacher).
+- [x] **Invariant** : `DailyCloseService::buildSnapshot`
+  appelle `dashboardForDate()` NON cachée — le snapshot
+  night audit reste toujours frais, source de vérité
+  comptable. La version cachée sert uniquement les vues
+  dashboard temps réel.
+- [x] Invalidation : `DailyCloseService::close()` et
+  `reopen()` invalident la clé du jour clos via
+  `invalidateDashboardCache($tenantId, $businessDate)`.
+- [x] +5 tests : hit/miss sur date passée, hit/miss sur
+  aujourd'hui, bypass sur date future, invalidation au
+  close, scope tenant (un tenant A n'invalide pas B).
+
+---
+
+**Mini-fix 14-B.2.2 — Invalidation cache résiliente**
+- [x] `invalidateDashboardCache` enrobé dans un `try/catch`
+  silencieux (log warning, pas de re-throw). Un Redis
+  indisponible ne doit pas faire échouer une clôture
+  comptable déjà flushée — le cache se ré-hydrate
+  naturellement au prochain accès ou au prochain
+  redéploiement.
+
+---
+
+**B.2.3 — Indexes PostgreSQL ciblés**
+- [x] Migration tenant `Version20260618000000AddAnalyticsIndexes` :
+  `idx_reservation_status_checkin` (status, check_in),
+  `idx_reservation_status_checkout` (status, check_out),
+  `idx_payment_processed_at` (processed_at),
+  `idx_invoice_status_issued_at` (status, issued_at).
+  Cible les requêtes RevPAR, occupancy, CA journalier
+  et les filtres dashboard.
+- [x] `make test-security` continue de couvrir les
+  headers HTTP via `SecurityHeadersTest` (déjà ajouté
+  en B.1.1).
+- [x] EXPLAIN ANALYZE validé sur les requêtes
+  analytics : Index Scan utilisé quand le planner les
+  considère ; Seq Scan reste optimal sur le faible
+  volume dev (~12 réservations en fixtures), ce qui est
+  normal — les indexes seront effectifs dès que les
+  tables atteindront un volume significatif en prod.
+
+**Livrable** : application durcie pour la prod côté
+sécurité (headers HTTP stricts sur toutes les réponses
+API, rate limiting global 4 limiters via Redis,
+vérification SHA-512 des IPN Paydunya, Mercure JWT
+subscriber scopé tenant côté front), côté performance
+(cache Redis KPIs invalidé proprement au night audit,
+indexes PostgreSQL ciblés sur les requêtes analytics),
+et côté robustesse (2 garde-fous métier en hotfix
+pendant le sprint, mini-fix résilience Redis).
+
+**Reste pour 14-C** :
+- [ ] Bascule hub Mercure `anonymous=false` côté Caddy
+  + Config Vars (`MERCURE_SUBSCRIBER_JWT_KEY` /
+  `SUBSCRIBER_JWT_KEY` selon convention retenue lors
+  du déploiement)
+- [ ] TLS Let's Encrypt sur le hub Mercure (HTTPS
+  effectif via Caddy auto-cert)
+- [ ] `publish_origins` restreint au domaine
+  Heroku/backend (retirer le `*` dev)
+
+---
+
+### ⬜ Sprint 14-C — Déploiement
+**Objectif** : `https://demo.getstayos.com` accessible,
+stable, monitoré.
+
+**Comptes à ouvrir**
+- Heroku (backend + Mercure)
+- Vercel (frontend)
+- Cloudflare (DNS + CDN — déjà ouvert pour le domaine)
+- Sentry (erreurs runtime)
+- Papertrail (logs centralisés, addon Heroku)
+- UptimeRobot (uptime monitoring + status page)
+
+**Configuration**
+- [ ] Domaine `getstayos.com` (acheté sur Cloudflare
+  Registrar)
+- [ ] DNS Cloudflare + wildcard `*.getstayos.com`
+- [ ] Heroku Postgres Standard-0 + Heroku Data for Redis Mini
+- [ ] Heroku app backend Standard-2X + Heroku app Mercure
+  Hobby
+- [ ] Vercel project frontend
+- [ ] Audit `.env` côté prod — aucune valeur dev type
+  `change_me_*`, `stayos_jwt_dev_secret` ne doit fuir
+  (Chantier 6 recommandation)
+- [ ] Sentry DSN configuré + smoke test (erreur volontaire
+  pour valider le pipeline)
 - [ ] Papertrail configuré + 4 alertes actives
 - [ ] UptimeRobot configuré + status page live
-- [ ] Déploiement Heroku + RDS + Vercel fonctionnel
-- [ ] Wildcard DNS `*.stayos.sn` sur Cloudflare
-- [ ] Smoke tests en prod (login, réservation, paiement Paydunya test)
-- [ ] Guide démarrage rapide utilisateur
+- [ ] Smoke tests en prod (login, réservation, paiement
+  Paydunya sandbox sur `demo.getstayos.com`)
 
-**Livrable** : `https://demo.stayos.sn` accessible, stable, monitoré
+**Documentation**
+- [ ] `deploy.md` resynchronisé avec les commandes exactes
+  Heroku Config Vars
+
+**Livrable** : `https://demo.getstayos.com` opérationnel
 
 ---
 
@@ -1324,7 +2433,11 @@ explicite. Bloquant avant le passage en prod.
 | SaaS (suite) | S13ter | 1 semaine | Configuration hôtel manager + templates seed |
 | SaaS (suite) | S13quater | 1 semaine | Night audit / clôture comptable journalière |
 | SaaS (suite) | S13quinquies | ~1 semaine | Corrections financières (no-show, refund, annulation) |
-| Production | S14 | 1 semaine | Déploiement + sécurité finale |
+| SaaS (suite) | S14-A.1 | ~1 semaine | Dettes critiques avant prod |
+| SaaS (suite) | S14-A.2 | ~1 jour | UI manager politiques financières |
+| SaaS (suite) | S14-A.3 | ~1 semaine | Cohérence et polish (5 sous-paquets) |
+| Production | S14-B | ~1 semaine | Sécurité et performance (2 volets, +36 tests) |
+| Production | S14-C | ~1-2 semaines | Déploiement |
 | **Total** | **17 sprints** | **~17 semaines** | **App production-ready** |
 
 ---
@@ -1414,19 +2527,16 @@ après les 16 sprints initiaux ou à intégrer dans un sprint dédié.
     Aperçu live « N supplémentaires possibles » dans la modal
     bulk create. Bypass ENTERPRISE (limite `null`) sur les
     deux limites.
-- **Feature-gating via voter Symfony (priorité moyenne, Sprint 14)** :
-  aujourd'hui les features sont gardées par appels manuels à
-  `featureChecker->assertEnabled('feature_name')` au début des
-  endpoints concernés (2 endpoints écriture tarifs
-  `revenue_management`, 2 endpoints rapports `advanced_reports`).
-  Risque : un futur endpoint ajouté sans cet appel ne sera pas
-  gardé et le bug peut rester invisible des mois (même mécanique
-  que le `catch` muet Mercure du Sprint 11). À implémenter :
-  attribut `#[IsGranted('FEATURE', 'revenue_management')]` + voter
-  dédié qui appelle `FeatureChecker::isEnabled`. Couvrir par un
-  `FeatureGuardTest` global qui vérifie que tous les endpoints
-  critiques retournent 422 `PLAN_LIMIT` pour un Starter (test
-  prévu dans le prompt Sprint 12 mais non livré).
+- ✅ **Feature-gating via voter Symfony** — livré au Sprint
+  14-A.1 Chantier 3 : `FeatureVoter` + attribut
+  `#[IsGranted('FEATURE_<name>')]` sur 11 call sites
+  (RateController 6, PromotionController 3, DashboardController 2)
+  + `FeatureGuardTest` global avec 13 tests (5 strict 403
+  PLAN_LIMIT + 6 lax 403/404 pour les endpoints `{id}` à cause
+  du ParamConverter + 2 PRO pass). Le backlog estimait 4 call
+  sites, l'audit a trouvé 11. Note : code HTTP réel = 403 (pas
+  422 comme initialement supposé), `FeatureNotAvailableException`
+  étend `HttpException(statusCode: 403)`.
 - **Features annoncées sans contenu (priorité basse, décision UX
   produit)** : les fixtures déclarent `channel_manager`,
   `multi_property`, `api_access` dans le plan Pro. Ces features
@@ -1437,25 +2547,20 @@ après les 16 sprints initiaux ou à intégrer dans un sprint dédié.
   tel quel (risqué).
 
 ### Audit & traçabilité
-- **Normaliser `entityType` dans `audit_logs`** (priorité moyenne) :
-  incohérence identifiée Sprint 13bis-A. `Reservation` utilise
-  `'Reservation'` (PascalCase), staff utilise `'staff_user'`
-  (snake_case), les autres modules sont probablement encore sur
-  d'autres conventions. Décider d'une seule convention
-  (snake_case recommandé) et migrer les anciens logs +
-  unifier dans les services. Le journal d'activité par employé
-  s'en moque (il filtre par `staffUserEmail`), mais la lecture
-  d'un historique par entité (`findByEntity`) deviendrait
-  ambigüe si quelqu'un cherchait du snake_case alors qu'on a
-  stocké du PascalCase.
-- **Bug `entityId='new'` dans `ReservationEngine::create`**
-  (priorité moyenne) : l'audit log est écrit AVANT le flush
-  Doctrine, donc `entityId` vaut toujours la chaîne `'new'` au
-  lieu de l'ID réel. Conséquences : (1) le lien depuis le
-  journal d'activité vers la réservation est impossible ; (2)
-  `findByEntity('Reservation', 'new')` retourne TOUS les
-  `reservation.created` du tenant. À corriger en remontant le
-  `auditService->log()` APRÈS le flush dans le repository.
+- ✅ **`entityType` normalisé en PascalCase dans `audit_logs`** —
+  livré au Sprint 14-A.3 A.1. 11 call sites migrés
+  (`daily_close`, `staff_invitation`, `staff_user`, `tenant`).
+  Les audit logs persistés avant la convention restent dans
+  leur format (pas de migration de données — cosmétique
+  uniquement, les méthodes `findByEntity`/`getHistory`
+  acceptent indifféremment).
+- ✅ **Bug `entityId='new'` corrigé** — livré au Sprint 14-A.3
+  A.1. 4 services concernés (`ReservationEngine::create`,
+  `DailyCloseService` close+reopen, `InvoiceService::refundPayment`,
+  `FeeInvoiceService`). Remplacement de `'new'` par
+  `(string) $entity->getId()` après le `persist()` —
+  l'UuidV4Generator Doctrine assigne l'ID dès le persist,
+  pas besoin d'attendre le flush.
 - **Filtre date dans `/superadmin/audit`** (priorité basse) :
   pas de `?from` / `?to` en V1. Avec un volume croissant
   (toutes les actions sensibles SuperAdmin + suspend/reactivate
@@ -1479,28 +2584,46 @@ après les 16 sprints initiaux ou à intégrer dans un sprint dédié.
   (priorité basse, Sprint 13quater-B) : le template Twig fait
   `totalTtc / 1.18 * 0.18` en float alors que tout le backend
   utilise bcmath. Imprécision possible à 1-2 centimes près
-  sur de gros volumes. Fix : stocker `vatXof` directement
-  dans `snapshot.invoices` via bcmath au moment de la close,
-  pour que le PDF et l'UI lisent une valeur précalculée et
-  cohérente avec la facturation.
-- **Cutoff hardcodé "5 h" dans NightAuditView**
-  (priorité moyenne, Sprint 13quater-C) : la sub-card
-  "Cutoff configuré : 5 h" est codée en dur côté frontend
-  alors que la valeur est configurable par tenant dans
-  `Tenant.settings['business_day_cutoff_hour']`. Si un tenant
-  reconfigure son cutoff, l'UI affichera toujours 5 h.
-  Fix : exposer la valeur réelle dans le payload
-  `GET /api/night-audit/current` (ou un endpoint
-  `/tenant/settings`) et l'afficher dynamiquement côté UI.
-- **`lastEffectiveClose` dépendant de la pagination**
-  (priorité basse, Sprint 13quater-C) : `NightAuditView` lit
-  `history.data[0]` pour pointer vers la close courante depuis
-  le statut "déjà clôturée". Si l'utilisateur a paginé sur
-  page 2+, le bouton "Voir le détail" pointerait vers une
-  close plus ancienne, pas celle d'aujourd'hui. Fix : exposer
-  `lastCloseId` dans le payload `GET /current` côté backend,
-  ou charger explicitement la `findLatestEffective()` côté
-  frontend indépendamment de la pagination de l'historique.
+  sur de gros volumes. ✅ Résolu au Sprint 14-A.3 B.2 :
+  `vatXof` est désormais stocké dans `snapshot.invoices`
+  via une SUM SQL des `taxXof` des factures issued. Le
+  template Twig lit la valeur précalculée (fallback float
+  conservé pour les snapshots pré-14-A.3 — invariant
+  d'immutabilité respecté).
+- ✅ **Cutoff hardcodé "5 h" dans NightAuditView** — résolu au
+  Sprint 14-A.2 : exposé via `GET /api/night-audit/current`
+  (`cutoffHour: int` ajouté aux 4 chemins de retour de
+  `DailyCloseService::getCurrent`, calculé une seule fois en
+  haut). Affiché côté front via `{{ current.cutoffHour }}`
+  (type `NightAuditCurrent` étendu côté TS).
+- ✅ **`lastEffectiveClose` indépendant de la pagination** —
+  livré au Sprint 14-A.3 B.1. `NightAuditView` utilise
+  désormais un `ref` mis à jour uniquement au `reload()`
+  (qui force `page.value = 1`). `changePage` ne le touche
+  plus, donc le bouton "Réouvrir" cible toujours la vraie
+  dernière close même en page 2+.
+- ✅ **Pattern feedback utilisateur uniformisé sur
+  `pushUiToast`** — livré au Sprint 14-A.3 B.1. 4 vues
+  refactorées (`InvoiceDetailView`, `TenantDetailView`,
+  `StaffListView`, `TaskCard.vue`). Refs `successMsg/errorMsg`
+  retirées, divs styled inline retirés, CSS dédié supprimé.
+  La distinction "feedback transitoire" vs "état de page"
+  (`paymentReturn` bandeau persistant) est préservée.
+- ✅ **Garde-fou backend no-show futur** — livré au Sprint
+  14-A.3 A.2. `ReservationEngine::markNoShow` refuse
+  désormais `checkIn > businessDate` (comparaison strict,
+  `checkIn = today` reste valide). Défense en profondeur
+  côté serveur. Test
+  `testNoShowOnFutureCheckInRefused` couvre le cas.
+- ✅ **Contexte des logs `catch` uniformisé** — livré au
+  Sprint 14-A.3 A.1. 11 logs préexistants enrichis avec
+  `'class' => $e::class` (`AbonnementService::checkExpirations`,
+  `PublishDailyAlertsHandler`, `PaydunyaWebhookHandler`,
+  `PaydunyaGateway` ×2, `SubscriptionEmailService` ×2,
+  `EmailService` ×2, `PaydunyaWebhookController`,
+  `InvoiceController`, `ReservationEngine::checkOut`).
+  `MercurePublisher` non touché (utilise déjà
+  `get_class($e)`, équivalent fonctionnel).
 
 ### Mécanismes métier manquants
 Manques fonctionnels structurels identifiés en cours de
@@ -1508,47 +2631,58 @@ livraison — souvent des concepts existants (enums, statuts)
 mais sans logique de service ni d'UI. Justifient des sprints
 dédiés plutôt qu'un fix ponctuel.
 
-- 🔴 **No-show non implémenté** (priorité HAUTE — Sprint 13quinquies) :
-  enum `ReservationStatus::NO_SHOW` existe depuis le Sprint 5
-  mais aucune méthode service, aucun endpoint, aucun bouton
-  UI. Pire : le warning `arrivals.pending` du night audit
-  livré au 13quater-B affiche explicitement "Marquez no-show
-  si le client n'est pas venu" alors qu'aucun moyen n'existe
-  pour le faire. À traiter au S13quinquies avec arbitrage
-  de la politique de facturation associée (rien / 1ère nuit /
-  total) et intégration au warning du night audit.
-- 🔴 **Refund non implémenté** (priorité HAUTE — Sprint 13quinquies) :
-  `PaymentStatus` n'a pas de cas `REFUNDED`. Aucune logique
-  de remboursement, d'avoir (credit note), ou de sortie de
-  caisse négative. Indispensable pour la prod — tout PMS
-  doit savoir tracer un remboursement client (annulation
-  tardive, geste commercial, double facturation). À traiter
-  au S13quinquies avec arbitrage minimaliste (paiement
-  négatif tracé) vs complet (credit note dédiée).
-- ⬜ **Politique d'annulation tardive** (priorité moyenne —
-  S13quinquies ou V2) : aujourd'hui `ReservationEngine::cancel`
-  annule sans contrainte ni frais. Une vraie politique
-  implique des frais d'annulation selon le préavis (gratuit
-  > 48 h, 1 nuit retenue 24-48 h, total < 24 h par défaut,
-  configurable par tenant). À arbitrer dans le S13quinquies :
-  inclure dès maintenant (cohérent avec le refund) ou
-  reporter en V2.
+- ✅ **No-show implémenté** (livré Sprint 13quinquies-A) :
+  `ReservationEngine::markNoShow` + politique tenant
+  configurable (none / first_night / full, défaut
+  first_night) avec surcharge cas par cas par le
+  réceptionniste, facture frais distincte émise direct
+  ISSUED, audit log enrichi avec `overridden: true` quand
+  geste commercial. UI : bouton "Marquer no-show" sur fiche
+  réservation visible si status ∈ {confirmed, pending} ET
+  `checkIn <= today`, modale avec récap politique + total
+  live + select override.
+- ✅ **Refund implémenté** (livré Sprint 13quinquies-B) :
+  `InvoiceService::refundPayment` avec Payment négatif +
+  status PAID (pas de `PaymentStatus::REFUNDED` ajouté,
+  décision documentée — le filtre `getCompletedPayments`
+  ne le verrait pas), garde anti-over-refund, recalcul du
+  statut Invoice (PAID → PARTIAL si refund partiel ou
+  PAID → ISSUED si refund total, CANCELLED reste figé),
+  audit log enrichi avec `amountRefunded` positif +
+  `storedAsXof` négatif + transitions de statut. UI : bouton
+  "Rembourser" sur fiche facture visible si `paidXof > 0`,
+  modale avec validation client live + bandeau info "geste
+  manuel agent client". Lignes refund visuellement
+  distinctes dans la liste paiements.
+- ✅ **Politique d'annulation implémentée** (livré Sprint
+  13quinquies-A) : `ReservationFeeCalculator` (service pur)
+  avec matrice 3 politiques × délais (flexible / moderate /
+  strict, défaut flexible). `ReservationEngine::cancel`
+  étendu avec calcul automatique + override commercial
+  possible, retour `array {reservation, invoice, feeXof,
+  feeQuote}`, endpoint `GET /cancellation-quote` dry-run pour
+  pré-affichage UI. Facture distincte émise pour les frais.
+  Tracking complet via audit log `feeOverridden: true` quand
+  geste commercial.
+- ✅ **UI manager pour configurer les politiques financières**
+  — livré au Sprint 14-A.2 : onglet "Finances" dans
+  `HotelConfigurationView` avec 3 selects pour `no_show_policy`,
+  `cancellation_policy`, `business_day_cutoff_hour`. Endpoint
+  `PATCH /api/tenant/settings` manager-only, validation enum,
+  audit log avec diff before/after sur les seuls champs changés
+  (pas d'entrée fantôme si no-op). 10 tests fonctionnels (RBAC,
+  validation, isolation cross-tenant).
 
 ### Plateforme & onboarding
-- **Transactionnaliser `OnboardingService::register/provision`**
-  (priorité moyenne, atténuée Sprint 13ter) : si
-  `TenantProvisioner::provision()` échoue après que le `Tenant`
-  a été persisté, on a un tenant orphelin en BDD sans schema
-  PostgreSQL associé (ou l'inverse : schema orphelin sans
-  tenant). Dette héritée du Sprint 2 (`register`) et
-  reproduite au Sprint 13bis-B (`provision`). Sprint 13ter
-  livre un filet de sécurité avec
-  `stayos:tenant:cleanup-orphans` pour nettoyer a posteriori,
-  mais ce n'est pas la prévention. À traiter au Sprint 14
-  pour empêcher la pollution en amont : `beginTransaction()`
-  autour de toute la méthode + `DROP SCHEMA IF EXISTS` en cas
-  de rollback (`CREATE SCHEMA` est DDL non-transactionnel en
-  PostgreSQL — attention au rollback partiel).
+- ✅ **Transactionnaliser `OnboardingService::register/provision`** —
+  livré au Sprint 14-A.1 Chantier 4 : `beginTransaction()`
+  autour de chaque méthode, helper privé `dropSchemaSafely()`
+  avec validation regex anti-injection, OTP positionné APRÈS
+  `commit()` (panne Mailjet ne doit pas annuler l'inscription),
+  3 tests fonctionnels qui forcent l'échec à différents points
+  du flow et vérifient l'absence totale de résidus en BDD
+  (tenant + schema). 0 orphan détecté par `cleanup-orphans`
+  après l'exécution de la suite.
 - **Variante 3 — UI SuperAdmin de configuration d'un tenant
   existant** (priorité basse, V2) : aujourd'hui le SuperAdmin
   pré-remplit via templates au moment de la création
@@ -1580,7 +2714,12 @@ dédiés plutôt qu'un fix ponctuel.
   `stayos:tenant:cleanup-orphans --dry-run` en pre-commit CI
   pour alerter si des orphelins traînent. Cas particulier :
   les schemas dumpés avant DROP (mode `--dump-to`) restent
-  récupérables via `psql -f /tmp/orphan_*.sql`.
+  récupérables via `psql -f /tmp/orphan_*.sql`. Note : le
+  pattern `baselineOrphanSchemas` au setUp du
+  `OnboardingTransactionalTest` (Sprint 14-A.1 Chantier 4)
+  peut servir de référence pour les futurs tests qui créent
+  des tenants — capture l'état initial et ne mesure QUE les
+  nouveaux orphelins créés par le test.
 
 ### Dashboard & rapports — enrichissements
 - **Comparaison vs periode precedente** : afficher la variation % des
@@ -1607,17 +2746,18 @@ dédiés plutôt qu'un fix ponctuel.
   renforcee entre statut physique et reservations.
 
 ### Notifications temps réel — raffinements
-- **Anti-spam toasts, cas limite rafale 4+** : à partir de la 4e
-  notification d'une rafale identique en < 2 s, le compteur du toast
-  groupé se réinitialise au lieu de continuer à monter. Cas rare (ex :
-  5 tâches assignées simultanément en début de service), à raffiner
-  si l'usage le révèle. Voir `notifications.store.ts` →
-  `shouldGroupBurst` + `pushToast`.
-- **Double `disconnect()` au logout** : `notifications.disconnect()`
-  est appelé deux fois — depuis le `watch` sur `isAuthenticated` dans
-  `App.vue` ET depuis `auth.store.logout()`. Idempotent (refcount =>
-  no-op si déjà fermé), donc inoffensif, mais un seul chemin
-  suffirait. À nettoyer pour la lisibilité.
+- ✅ **Anti-spam toasts rafale 4+ corrigé** — livré au Sprint
+  14-A.3 B.1. `notifications.store.ts` : ajout d'un champ
+  `groupedCount?: number` sur `ToastEntry`. `pushToast` détecte
+  désormais un toast déjà-groupé du même type dans la fenêtre
+  et incrémente son compteur (4e+ toast fusionné dans le
+  groupé existant au lieu de générer un nouveau toast).
+- ✅ **Doublon `disconnect()` au logout retiré** — livré au
+  Sprint 14-A.3 B.1. L'appel explicite à
+  `useNotificationsStore().disconnect()` est retiré du
+  `auth.store.logout()`. Le `watch(auth.isAuthenticated)` dans
+  `App.vue` reste la voie canonique (couvre logout manuel +
+  expiration JWT + redirection 401).
 - **Refetch reservations + filtre actif** : sur `reservation.created`,
   `reservations.store` redéclenche un fetch avec le dernier filtre
   appliqué (`lastFetchParams`). Si la vue affichait un filtre par
@@ -1635,19 +2775,29 @@ dédiés plutôt qu'un fix ponctuel.
   -2 connexions.
 
 ### Infrastructure de test & qualité
-- **Bug Lexik rate limiter sur login après 5 tentatives** : comportement
-  anormal reproduit en environnement de développement, test
-  `testLoginRateLimitAfterFiveAttempts` skippé avec message explicite.
-  À investiguer : config Lexik, version du bundle, ou intégration
-  avec le rate limiter Symfony. Bloque la couverture du flux
-  bruteforce login en CI.
-- **Scripts npm racine cassés (frontend/)** : `npm run build` et
-  `npm run lint` échouent par absence de `tsconfig.json` et
-  `eslint.config.js` à la racine `frontend/`. Le type-check ciblé
-  (`tsc --strict` sur les fichiers modifiés) passe et `vite build`
-  fonctionne, donc le code est sain — mais la CI/déploiement
-  nécessitera ces scripts opérationnels. À remettre en état avant
-  Sprint 14 (production).
+- ✅ **Bug Lexik rate limiter login corrigé** — livré au Sprint
+  14-A.3 C.1. `LoginRateLimitListener` créé sur l'event
+  `lexik_jwt_authentication.on_authentication_failure` ; détecte
+  `TooManyLoginAttemptsAuthenticationException` (sur `$exception`
+  direct OU `getPrevious()`) et renvoie 429 RATE_LIMITED.
+  Pool dédié `cache.rate_limiter: filesystem` ajouté en env test
+  (le cache `array` ne survit pas au reboot kernel).
+  `testLoginRateLimitAfterFiveAttempts` réactivé avec
+  `disableReboot()` + email unique + clear cache en setUp.
+- **Compléter le type `TenantDetail`** (priorité basse, Sprint
+  14-A.3 B.2) : `frontend/src/types/superadmin.ts` n'expose pas
+  `timezone?: string`, alors que `TenantDetailView::saveEdit`
+  l'envoie au backend. Contourné actuellement par un cast
+  `(tenant.value as unknown as { timezone?: string }).timezone`.
+  Ajouter le champ au type officiel à la prochaine touche du
+  module SuperAdmin.
+- ✅ **Scripts npm racine cassés (frontend/)** — livré au
+  Sprint 14-A.1 Chantier 2 : `frontend/tsconfig.json` créé
+  (extends `@vue/tsconfig/tsconfig.dom.json`), `eslint.config.js`
+  flat config eslint 9 créé, cible Makefile `npm-type-check`
+  ajoutée. `make npm-build` + `make npm-lint` + `make npm-type-check`
+  tous verts. 5 bugs typés TypeScript révélés et corrigés au
+  passage (à valider robustesse en polish 14-A.3).
 - **Suite complète à chaque clôture de sprint** : les régressions
   `InvoiceServiceTest` (Sprint 7) et le 404 fonctionnel (fixtures
   test jamais chargées) ont été révélés tard parce que `make test`
@@ -1655,14 +2805,20 @@ dédiés plutôt qu'un fix ponctuel.
   fin de sprint : suite complète verte AVANT le commit de clôture.
   Idéalement, automatiser via un pre-commit hook ou une étape CI au
   Sprint 14.
-- **Auditer les `catch (\Throwable)` silencieux** : le bug Mercure
-  JWT < 256 bits a été masqué pendant un sprint entier par un catch
-  muet dans `MercurePublisher`. Le fix au Sprint 11 a transformé ce
-  catch en `WARNING` loggé, mais d'autres opérations critiques
-  (paiement, email, upload Uploadcare, génération PDF, IPN Paydunya,
-  etc.) ont peut-être des catch équivalents qui avalent les
-  exceptions sans tracer. Une demi-heure de revue qui peut éviter le
-  prochain bug fantôme — à prévoir avant le Sprint 14.
+- ✅ **Auditer les `catch (\Throwable)` silencieux** — livré
+  au Sprint 14-A.1 Chantier 5 : 31 occurrences auditées, 4
+  TYPE 1 (silencieux) corrigés en TYPE 2 (loggé)
+  — `HealthController` DB + Redis probes,
+  `SubscriptionController::computeUsage` rooms + staff_users.
+  2 TYPE 2 justifiés (`CheckSubscriptionsHandler`,
+  `AbonnementService::checkExpirations`), 25 TYPE 3 (bien gérés)
+  RAS. Document d'audit : `backend/docs/catch-audit-2026-14.md`.
+- **Test reflection / PHPStan custom anti-régression catch
+  silencieux** (priorité basse, recommandation Sprint 14-A.1
+  Chantier 5) : scanner `backend/src/` à la recherche de
+  `catch (...) { ... }` dont le corps ne contient ni
+  `$logger->` ni `throw`. À planifier 14-A.3 polish ou 14-B.
+  Bloquerait toute régression dans les futurs PRs.
 - **Tests de retour Paydunya non couverts (Sprint 12)** : les pages
   `PaymentReturnView` et `PaymentCancelView`, ainsi que le polling
   `pending`, ne sont pas couverts par des tests automatisés. Le
@@ -1671,34 +2827,27 @@ dédiés plutôt qu'un fix ponctuel.
   `stayos:test:paydunya-ipn` qui mocke `PaydunyaService` et envoie
   un IPN simulé directement sur le webhook — utile pour la CI et
   pour valider la chaîne SaaS en dev sans Paydunya réel.
-- **Audit des paramètres Symfony hardcodés** : `services.yaml`
-  contenait `default_backend_url: 'http://localhost:8080'` en dur
-  au lieu de `%env(APP_BACKEND_URL)%`. Auditer tous les
-  `parameters:` de `services.yaml` et des autres yaml pour
-  vérifier qu'aucune URL, secret ou config sensible n'est figée —
-  tout doit être résolu via `%env(VAR)%` avec un défaut explicite
-  si besoin. Sinon les variables d'env ne servent à rien et la
-  prod utilisera des valeurs de dev.
-- **Tests `@group integration` silencieusement skippés**
-  (priorité haute, à traiter Sprint 14) : 103 tests
-  integration désormais (8 SuperAdmin Sprint 13 +
-  12 StaffInvitation + 18 StaffCrud + 4 unit
-  SubscriptionLimitChecker + 2 LoginUpdatesLastLoginAt
-  Sprint 13bis-A + 11 SuperAdminTest Sprint 13bis-B + autres),
-  tous exclus de `make test` standard. `make test` retourne
-  « 193 tests verts » sans les exécuter, masquant des
-  régressions potentielles. Trois options à arbitrer :
-  (A) retirer l'annotation `@group integration` (les tests
-  tournent en ~30 s cumulés, acceptable en CI) ;
-  (B) garder l'annotation et systématiser un appel à
-  `make test-integration` (cible Makefile existante) dans
-  un `make test-all` + en CI ;
-  (C) revoir tous les tests `@group integration` du projet
-  pour décider lesquels doivent vraiment être exclus par
-  défaut (vrais tests E2E qui montent une chaîne externe
-  vs tests fonctionnels qui ont juste besoin des fixtures).
-  À traiter au Sprint 14 (production-ready) en même temps
-  que la mise en place de la CI.
+- ✅ **Audit des paramètres Symfony hardcodés** — livré au
+  Sprint 14-A.1 Chantier 6 : 25 fichiers YAML inventoriés,
+  19 références `%env(VAR)%` croisées avec `backend/.env` —
+  toutes documentées. 0 migration nécessaire (le fix Sprint 12
+  avait fait le ménage principal). Document d'audit :
+  `backend/docs/yaml-audit-2026-14.md`.
+- **Test reflection yaml ↔ .env** (priorité basse,
+  recommandation Sprint 14-A.1 Chantier 6) : scanner
+  `config/**/*.yaml` pour les `%env(VAR)%` et vérifier qu'une
+  entrée `VAR=...` existe dans `backend/.env`. Éviterait une
+  régression à la Sprint 12 (URL hardcodée pendant un sprint
+  entier). À planifier 14-A.3 ou 14-B.
+- ✅ **Tests `@group integration` silencieusement skippés** —
+  livré au Sprint 14-A.1 Chantier 1 (option A) : 44 annotations
+  retirées + directive `<group>integration</group>` retirée du
+  bloc `<exclude>` de `phpunit.xml.dist`. `make test` est passé
+  de 193 → 401 tests (+208 ex-integration intégrés à la suite
+  par défaut). Cible Makefile `test-integration` conservée pour
+  un usage V2 potentiel. Régression cachée révélée et corrigée
+  au passage : `ReservationPromoTest` avec des dates non
+  actualisées.
 - **Tests de schema cleanup en tearDown** (priorité moyenne) :
   les tests fonctionnels `@group integration` qui créent des
   tenants via `OnboardingService::provision` laissent des
@@ -1710,15 +2859,15 @@ dédiés plutôt qu'un fix ponctuel.
   Idéalement complété par un hook CI qui exécute
   `stayos:tenant:cleanup-orphans --dry-run` après la suite
   et fail si le dry-run n'est pas vide.
-- **Mode strict TypeScript pour les imports de services**
-  (priorité haute, avant prod) : leçon Sprint 13ter — le
-  refactor `roomService.getTypes` → `roomTypeService.getAll`
-  a cassé 3 vues parce que les imports n'ont pas été détectés
-  par le compilateur (`vite build` ne fait pas de type-check
-  strict). Vérifier la config `tsconfig.json` :
-  `noUnusedLocals`, `noImplicitAny`, `strict: true`. Ajouter
-  un step `tsc --noEmit` dans la CI — c'est ce qui aurait
-  attrapé la régression au build.
+- ✅ **Mode strict TypeScript pour les imports de services** —
+  livré au Sprint 14-A.1 Chantier 2 : `tsconfig.json` racine
+  avec `strict: true`, `noImplicitAny: true`, alias `@/*` →
+  `./src/*` aligné avec Vite, `vue-tsc --noEmit` accessible
+  via `make npm-type-check`. Le run initial a effectivement
+  révélé 2 appels `roomService.updateType` (au lieu de
+  `roomTypeService.update`) qui auraient cassé en prod —
+  corrigés au passage. 6 warnings ESLint résiduels à traiter
+  en polish 14-A.3.
 - **Tests E2E sur cancel/checkIn/checkOut avec verrou actif**
   (priorité basse, Sprint 13quater-B) :
   `LockedDayPreventsModificationTest` couvre désormais
@@ -1732,11 +2881,27 @@ dédiés plutôt qu'un fix ponctuel.
   business date courante est hypothétiquement close (cas
   dégénéré qui ne devrait jamais arriver vu la séquentialité)
   manque. Acceptable en V1.
+- **Auditer `GET /api/rooms/types`** (priorité basse, Sprint
+  14-A.3 C.1) — legacy lecture conservé au C.1. Le PUT
+  homonyme `/api/rooms/types/{typeId}` a été supprimé,
+  la route canonique étant `/api/room-types/{id}`. Vérifier
+  si le GET est encore utilisé par le frontend, supprimer
+  sinon. À traiter à la prochaine touche du module Room.
+- **Auditer les autres helpers de test `now + Xh` formaté
+  en `Y-m-d`** (priorité basse, Sprint 14-A.3 C.1) : la
+  colonne `reservations.check_in` est de type DATE (perd
+  l'heure), donc tout helper qui pose une `check_in` à
+  partir d'un offset en heures est sensible à l'heure
+  d'exécution. Pattern corrigé sur
+  `CancellationWithFeesTest::seedReservation`. Auditer
+  `NoShowTest`, `ReservationTest`,
+  `LockedDayPreventsModificationTest`. Si trouvé, appliquer
+  le même pattern (`today + N jours civils`).
 
 #### Deprecations PHP/Symfony (priorité basse)
-- **`StaffUser::eraseCredentials()`** à annoter `#[\Deprecated]` —
-  Symfony 7.3+ recommande l'attribut. 5 minutes, à faire à la
-  prochaine touche du fichier.
+- ✅ **`StaffUser::eraseCredentials()` annotée `#[\Deprecated]`** —
+  livré au Sprint 14-A.3 C.1 (attribut natif PHP 8.4 +
+  PHPDoc `@deprecated`, since 7.3).
 - **Sprint d'upgrade Doctrine ORM 4.0** : les deprecations
   Doctrine représentent ~121 occurrences au `make test`. Migration
   possible quand `doctrine/doctrine-bundle` aura pris en charge
@@ -1751,20 +2916,26 @@ dédiés plutôt qu'un fix ponctuel.
   (`/hotel/{uuid}/...`). Acceptable en dev, **insuffisant en prod** :
   un UUID fuité (logs, screenshot, devtools) permet à un tiers de
   s'abonner aux events d'un hôtel.
-- **Plan prod** :
-  - Générer un JWT subscriber par session staff (claim `mercure.subscribe`
-    listant uniquement les topics du tenant courant) — service
-    Symfony à ajouter, exposé via `GET /api/auth/mercure-token`.
-  - Frontend : passer ce JWT à `EventSource` via `withCredentials: true`
-    et un cookie ou un query param signé (selon politique CORS).
-  - `cors_origins` restreint au domaine de prod
-    (`https://*.stayos.sn`).
-  - TLS réel (Caddy auto-cert Let's Encrypt en HTTPS, ce qui est le
+- ✅ **JWT subscriber par session staff** — livré au Sprint
+  14-B.2.1. `MercureSubscriberTokenService` génère un JWT
+  scopé tenant (claim `mercure.subscribe` =
+  `/hotel/{tenantId}/{event}`, exp 1h), exposé via
+  `GET /api/mercure/token` (cookie httpOnly
+  `mercureAuthorization`). Frontend `mercure.service.ts`
+  refactoré (`ensureToken` async, `withCredentials: true`,
+  refresh timer, `reset()` au logout). CORS
+  `allow_credentials: true` sur `/api`.
+- **Reste à faire au Sprint 14-C** :
+  - Bascule hub Caddy `anonymous=false` + Config Vars
+    (`MERCURE_SUBSCRIBER_JWT_KEY` / `SUBSCRIBER_JWT_KEY`
+    selon la convention retenue).
+  - TLS réel (Caddy auto-cert Let's Encrypt en HTTPS,
     comportement par défaut dunglas/mercure si on enlève le
     `SERVER_NAME: ':80'`).
-  - Retirer `publish_origins *` et restreindre au domaine Heroku/backend.
-- **À planifier au Sprint 14 (production-ready)** en même temps que le
-  durcissement sécurité général (headers HTTP, signatures webhooks).
+  - Retirer `publish_origins *` et restreindre au domaine
+    Heroku/backend.
+  - `cors_origins` restreint au domaine de prod
+    (`https://*.getstayos.com`).
 
 ### Documentation à resynchroniser
 - **services.md vs code réel** : décrit un `DashboardService` alors
@@ -1938,3 +3109,287 @@ ce ne sont pas des tickets mais des réflexes à appliquer.
   réponses API** plutôt que de laisser le frontend ou un
   template les recalculer. Le client ne devrait jamais
   reproduire une logique métier comptable.
+- **Payment négatif + status PAID pour matérialiser une
+  sortie de caisse sans nouveau status** (Sprint 13quinquies-B) :
+  pour les opérations comptables négatives (refund client,
+  sortie de caisse, ajustement), créer une ligne dans la même
+  table que les entrées mais avec amount négatif et le même
+  status `PAID` (effectivement réalisé). Plus simple et plus
+  robuste que d'ajouter un status `REFUNDED` dédié, qui forcerait
+  à modifier tous les filtres en aval (`getCompletedPayments`,
+  `getPaidXof`) pour inclure le nouveau status. Le calcul de
+  balance via `bcadd` somme naturellement les négatifs. Pattern
+  à reproduire pour : remboursements clients, sorties de caisse
+  diverses, ajustements comptables, avoirs. Discrimine via
+  `amount < 0` côté UI pour affichage différencié (couleur
+  rouge, badge "Remboursement", etc.). La sémantique
+  « registre comptable double » est préservée naturellement.
+- **Composant modal doit être robuste à son pattern
+  d'instanciation** (Sprint 13quinquies, fix robustesse) :
+  un composant Vue qui pilote son chargement via
+  `watch(() => props.isOpen)` casse quand le composant est
+  monté via `v-if` avec `isOpen=true` à la création
+  (`ReservationsView` vs `ReservationDetailView`). Le `watch`
+  ne capture pas la valeur initiale, il attend une transition
+  `false → true`. Solution : combiner `onMounted` (capture la
+  valeur initiale) + `watch` (capture les changements
+  ultérieurs). Pattern à appliquer à tous les composants
+  modales / popovers / drawers qui font du fetch piloté par
+  une prop `isOpen` / `visible` / `active`. Règle simple : si
+  le composant fait du fetch au "moment d'ouverture", **les
+  deux hooks doivent l'invoquer**.
+- **DTOs validation à double couche (Symfony Validator +
+  service métier)** (Sprint 13quinquies-B) : `RefundDTO` a
+  ses contraintes Symfony Validator (`NotBlank`, `Type(numeric)`,
+  `GreaterThan(0)`, `Length(min: 5)`, `Choice`) qui filtrent
+  les données mal formées en amont. Mais le service
+  `InvoiceService::refundPayment` ajoute en plus une garde
+  métier (`bccomp($amountXof, $alreadyPaid, 2) > 0` pour
+  l'anti-over-refund) qui ne peut PAS être exprimée
+  déclarativement (elle dépend de l'état runtime de
+  l'invoice). Pattern à appliquer : DTOs pour la validation
+  de **forme** (types, longueurs, formats) ; service métier
+  pour la validation de **cohérence runtime** (relations
+  entre champs, état BDD, contraintes business). Ne pas
+  mélanger : le DTO ne doit pas charger l'invoice depuis la
+  BDD pour valider, et le service ne doit pas dupliquer les
+  contraintes de forme.
+- **Pattern dry-run quote avant action mutante**
+  (Sprint 13quinquies-A, généralisé) : pour toute action
+  coûteuse, irréversible ou avec impact financier, exposer
+  un endpoint `GET /xxx-quote` qui calcule les conséquences
+  SANS rien modifier en BDD. L'UI fetch le quote au mount de
+  la modale de confirmation, l'utilisateur voit les
+  conséquences (montant à facturer, frais, durée, etc.),
+  puis confirme via `POST /xxx` qui réalise vraiment l'action.
+  Pattern cohérent avec `GET /night-audit/current` (Sprint
+  13quater) vs `POST /night-audit/close`. À reproduire pour :
+  upgrade de plan (proration), suppression de chambre (cascade
+  sur résa), changement de tarif (impact sur résas futures),
+  bulk operations (preview avant exécution). Améliore la
+  confiance utilisateur et évite les surprises post-action.
+- **`#[IsGranted('FEATURE_<name>')]` au lieu de
+  `('FEATURE', '<name>')`** (Sprint 14-A.1, Chantier 3) :
+  Symfony interprète le second argument d'`IsGranted`
+  comme un nom d'argument du contrôleur (sujet à passer
+  au voter), pas comme une chaîne littérale. Pour passer
+  une chaîne littérale il faudrait `new Expression("'...'")`
+  qui requiert `symfony/expression-language` (non
+  installé). Solution adoptée : encoder la feature dans
+  le nom d'attribut (`FEATURE_<name>`) avec un voter qui
+  utilise `str_starts_with` + `substr` pour extraire le
+  nom. Évite la dépendance, reste tout aussi déclaratif.
+  Pattern à reproduire pour tout nouveau voter qui aurait
+  besoin de passer un argument littéral à
+  `voteOnAttribute`.
+- **ParamConverter s'exécute AVANT `IsGranted` method-level**
+  (Sprint 14-A.1, Chantier 3) : pour les méthodes
+  controller avec `{id}` dans l'URL, Symfony résout
+  l'entité via le ParamConverter dans
+  `onKernelControllerArguments` (priorité haute), AVANT
+  que l'attribut `IsGranted` method-level ne soit évalué.
+  Conséquence : si l'entité n'existe pas dans le schema
+  tenant, un 404 NOT_FOUND tombe avant que le voter ne
+  puisse refuser pour une autre raison (PLAN_LIMIT,
+  ACCESS_DENIED, etc.). Les deux statuts bloquent
+  effectivement l'accès, mais il faut en tenir compte
+  dans les tests : les helpers `assertFeatureBlocked` et
+  `assertEndpointBlocked` du `FeatureGuardTest` font
+  cette distinction (strict 403 pour POST sans `{id}`,
+  lax 403 ou 404 pour PUT/DELETE avec `{id}`).
+- **Voter qui THROW au lieu de RETURN false** (Sprint
+  14-A.1, Chantier 3) : pattern orthodoxe Symfony =
+  retourner `bool` → Symfony lève
+  `AccessDeniedException` générique avec message
+  standard. Si le voter doit lever une exception métier
+  spécifique (code HTTP custom, message custom, code
+  d'erreur API custom), il PEUT throw directement
+  l'exception. Le `HttpException` remonte normalement au
+  kernel listener. Pattern à reproduire pour tout voter
+  qui doit préserver une UX spécifique. Documenter dans
+  le DocBlock du voter.
+- **`baselineOrphanSchemas` au setUp des tests** (Sprint
+  14-A.1, Chantier 4) : quand un test mesure l'absence
+  de résidus en BDD partagée, capturer au setUp l'état
+  initial pour ne mesurer QUE les NOUVEAUX résidus créés
+  par le test (via `array_diff(current, baseline)`).
+  Évite que le test échoue à cause de résidus laissés
+  par d'autres tests qui ne nettoient pas (faux positif).
+  Pattern à reproduire pour tout test qui vérifie une
+  propriété globale en BDD.
+- **DROP SCHEMA défensif après rollback** (Sprint 14-A.1,
+  Chantier 4) : `CREATE SCHEMA` PostgreSQL est en
+  théorie transactionnel mais la pratique a démontré au
+  Sprint 13ter (24 schemas orphelins observés) qu'il y
+  a au moins un cas où le rollback ne suffit pas
+  (probablement migrations intermédiaires qui font des
+  COMMIT implicites). Défense en profondeur : transaction
+  Doctrine + DROP SCHEMA explicite dans le catch, avec
+  validation regex anti-injection avant l'exécution du
+  DROP. Pattern à reproduire pour tout endroit qui fait
+  du DDL — ne JAMAIS confier au rollback ORM seul.
+- **Operation secondaire APRÈS `commit()`** (Sprint
+  14-A.1, Chantier 4) : les opérations non-bloquantes
+  (envoi d'email, notification, hook secondaire) doivent
+  être placées APRÈS le `commit()` de la transaction
+  principale. Sinon une panne du service externe (Mailjet
+  down, Mercure unreachable) annule la transaction
+  principale (création tenant, enregistrement
+  réservation), ce qui est absurde. Coût : si le hook
+  secondaire rate, l'utilisateur ne reçoit pas l'email
+  mais l'opération principale a réussi — il pourra
+  demander un renvoi via l'UI. Pattern à reproduire pour
+  tout flow où l'opération principale ne dépend pas
+  sémantiquement du hook secondaire.
+- **Adapter le test au comportement réel, pas au backlog**
+  (Sprint 14-A.1, Chantier 3) : le backlog mentionnait
+  "422 PLAN_LIMIT" pour les refus de feature, mais le
+  code réel `FeatureNotAvailableException` retourne 403.
+  Important de lire le code AVANT d'écrire le test —
+  sinon on écrit des assertions qui s'attendent à 422 et
+  on fait planter en production. Idem pour le volume :
+  le backlog estimait 4 call sites, en réalité 11.
+  Réflexe à appliquer : ne jamais se fier aveuglément
+  aux chiffres ou statuts mentionnés dans le backlog,
+  toujours grep le code source AVANT de cadrer un
+  chantier qui dépend de ces chiffres.
+- **`tsc --noEmit` en pré-commit pour les projets Vue/TS**
+  (Sprint 14-A.1, Chantier 2) : `vite build` ne fait pas
+  de type-check strict par défaut. Le script
+  `npm run build` du projet utilise `vue-tsc && vite build`
+  mais nécessite un `tsconfig.json` à la racine pour
+  fonctionner. Si le `tsconfig.json` manque, `vue-tsc`
+  plante silencieusement (en remontant l'erreur, mais
+  sans bloquer le développement quotidien). Pattern à
+  appliquer : intégrer `npm run type-check` (ou son
+  équivalent) dans la CI dès le début du projet Vue/TS,
+  pas en fin de cycle comme dette.
+- **`mixed` au lieu de `?int`/`?string` pour les DTO validés
+  par Symfony Validator** (Sprint 14-A.2) : si un champ DTO
+  est typé `?int` et que le payload envoie une string `"25"`,
+  l'assignation `$dto->x = "25"` throw un `TypeError` PHP
+  natif AVANT que `Assert\Type('integer')` ne puisse rejeter
+  proprement avec un message FR. Avec `mixed`, l'assignation
+  passe et le validateur retourne un 422 VALIDATION_ERROR
+  explicite. À utiliser pour tout champ DTO où la coercition
+  PHP automatique masquerait une erreur de typage côté client.
+  Coût : un cast explicite est requis après validation (mais
+  c'est sûr puisque `Assert\Type` a déjà vérifié).
+- **`array_key_exists` vs `isset` pour les PATCH partiels**
+  (Sprint 14-A.2) : `isset` retourne `false` pour une clé
+  explicitement à `null` dans un array, ce qui empêche de
+  distinguer "champ absent du payload" de "champ explicitement
+  nullifié par le client". Pour un PATCH REST où l'absence et
+  le null peuvent avoir des sémantiques différentes
+  (`{champ: null}` = "supprimer" vs `{}` = "ne pas toucher"),
+  `array_key_exists` est obligatoire. Pattern à appliquer
+  systématiquement aux endpoints PATCH.
+- **RBAC en vérif manuelle plutôt qu'attribut `IsGranted`
+  quand le message d'erreur compte** (Sprint 14-A.2,
+  généralisation Sprint 14-A.1 Chantier 3) : pattern Symfony
+  orthodoxe = `#[IsGranted('ROLE_X')]` → si refusé, Symfony
+  retourne un `AccessDeniedException` générique avec message
+  standard. Si le code d'erreur API ou le message UX doivent
+  être customs (cas FeatureVoter, cas TenantSettingsController),
+  préférer une vérif manuelle dans le controller :
+  `if (!$this->isGranted('ROLE_X')) { return $this->jsonError(...) }`.
+  À documenter dans le DocBlock du controller pour signaler
+  l'intention.
+- **Skip audit log si aucun changement effectif** (Sprint
+  14-A.2, généralisation pattern Sprint 13bis-B) : un PATCH
+  qui envoie les MÊMES valeurs que les valeurs courantes ne
+  doit PAS créer d'entrée d'audit log. Sinon on pollue la
+  timeline avec des updates fantômes, et on perd la capacité
+  de filtrer "qui a vraiment modifié quoi". Pattern : capturer
+  le `before` AVANT l'apply, calculer le `diff` après apply,
+  et ne logger que si `$diff !== []`. Pattern à appliquer
+  systématiquement aux endpoints PATCH idempotents.
+- **`entityId` disponible dès `persist()` avec UuidV4Generator
+  custom Doctrine** (Sprint 14-A.3 A.1) : avec un
+  `#[ORM\CustomIdGenerator(class: 'doctrine.uuid_generator')]`,
+  l'UUID est généré côté PHP au moment du `persist()` —
+  pas besoin d'attendre le `flush()` pour le récupérer. Le
+  bug `entityId='new'` était dû à un anti-pattern où le code
+  passait `'new'` littéral parce qu'il croyait l'ID
+  indisponible avant flush. Pattern à appliquer : pour tout
+  appel à `$auditService->log(entityId: ...)` sur une
+  entité tout juste créée, passer `(string) $entity->getId()`
+  après `persist()`. Pour les entités à ID séquence DB (non
+  utilisées en StayOS), il faudrait flush avant l'audit log
+  + re-flush ensuite (cf. le sous-cas documenté dans le
+  prompt A.1).
+- **Convention `entityType` en PascalCase, alignée sur les
+  noms de classes Doctrine** (Sprint 14-A.3 A.1) : éviter
+  les mélanges snake_case / PascalCase qui rendent les
+  requêtes audit imprévisibles. Les audit logs persistés
+  avant la convention restent dans leur format pour ne pas
+  exiger de migration de données — les nouveaux logs
+  respectent strictement PascalCase. Pattern : `entityType
+  => 'StaffUser'` plutôt que `'staff_user'`. Si on doit
+  écrire un `findByEntity()`, supporter les deux formats
+  pendant la transition.
+- **Distinction sémantique entre états tenants et états
+  subscriptions** (Sprint 14-A.3 A.2) : `TenantStatus::CHURNED`
+  (tenant définitivement résilié, irrécupérable) vs
+  `Subscription.status = 'cancelled'` (transaction
+  subscription annulée — un trial peut être annulé sans
+  faire passer le tenant en CHURNED). Ne PAS aligner les
+  deux enums — leur sémantique est volontairement
+  distincte. Le nommage des champs qui les exposent (DTO,
+  UI) doit refléter ce qu'il compte : `churnedTenantsCount`
+  pour les tenants, `cancelledSubscriptionsCount` pour les
+  subscriptions.
+- **Garde-fou serveur en complément du filtrage frontend**
+  (Sprint 14-A.3 A.2) : un check métier doit toujours
+  exister côté backend, même si l'UI filtre déjà la
+  possibilité de le déclencher. Exemple : `markNoShow`
+  refuse `checkIn > today` côté serveur, alors que
+  `canMarkNoShow` filtre déjà côté frontend. Raison :
+  protection contre les requêtes API directes (curl,
+  Postman, exploits). Pattern à appliquer à toutes les
+  opérations métier sensibles.
+- **Helper de test temporel avec colonnes DATE : raisonner
+  en jours civils, pas en heures** (Sprint 14-A.3 C.1) :
+  si la colonne BDD est `DATE` (date seule), formater
+  `now + Xh` → `Y-m-d` perd la composante horaire et le
+  re-parse Doctrine retombe à minuit. Le test devient
+  alors dépendant de l'heure d'exécution. Solution : poser
+  les dates en jours civils (`today + N jours`) et calculer
+  `N = ceil(hoursOffset / 24)` pour atteindre la bande
+  visée. Pattern à appliquer pour tout helper de test qui
+  pose une `check_in`, `check_out`, ou autre colonne DATE.
+- **Pool de cache dédié pour les rate-limiters en env test**
+  (Sprint 14-A.3 C.1) : Symfony `login_throttling` utilise
+  un cache pool pour ses compteurs. En env test, le cache
+  par défaut est `array` (in-memory), réinitialisé entre
+  chaque requête du `KernelBrowser` (reboot du kernel). Le
+  rate limiter ne peut donc jamais déclencher. Solution :
+  configurer un pool dédié `cache.rate_limiter: filesystem`
+  en env test, ET utiliser `$client->disableReboot()` dans
+  les tests qui s'appuient sur l'état partagé entre
+  requêtes. ET clear le pool en setUp pour isoler les
+  tests entre eux.
+- **Listener Lexik pour mapper exceptions Symfony en codes
+  HTTP custom** (Sprint 14-A.3 C.1) : `Lexik\AuthenticationFailureHandler`
+  mappe par défaut toute exception Symfony en 401 générique.
+  Pour préserver un code HTTP métier (429 RATE_LIMITED, 423
+  LOCKED, etc.), utiliser un listener sur l'event
+  `lexik_jwt_authentication.on_authentication_failure` qui
+  détecte l'exception spécifique (sur `$exception` direct
+  OU sur `$exception->getPrevious()` — Lexik peut
+  encapsuler) et override la réponse via
+  `$event->setResponse()`. Pattern à reproduire pour tout
+  cas où le code d'erreur métier doit transparaître.
+- **Override de paramètre Symfony dans services.yaml plutôt
+  que modif de security.yaml** (Sprint 14-A.3 C.1) : quand
+  un bundle Symfony évolue son API interne (signature de
+  constructeur changée d'un type primitif vers un Enum
+  par exemple), préférer un override du paramètre dans
+  `services.yaml` plutôt que de modifier la config du
+  bundle (security.yaml). Avantages : (a) la config du
+  bundle reste idiomatic, (b) la déviation est localisée
+  et documentée explicitement dans services.yaml, (c)
+  utilisation de `!php/enum` Symfony 7.x au lieu de string
+  casts hackeux. Exemple appliqué :
+  `security.authentication.hide_user_not_found: !php/enum
+  Symfony\…\ExposeSecurityLevel::None`.

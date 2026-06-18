@@ -13,7 +13,6 @@ use Doctrine\ORM\EntityManagerInterface;
 /**
  * Sprint 13ter — Tests CRUD des types de chambre.
  *
- * @group integration
  */
 class RoomTypeControllerTest extends ApiTestCase
 {

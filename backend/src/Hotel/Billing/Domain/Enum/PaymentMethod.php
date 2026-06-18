@@ -11,4 +11,12 @@ enum PaymentMethod: string
     case BANK_TRANSFER = 'bank_transfer';
     case MOBILE_MONEY  = 'mobile_money';
     case OTA           = 'ota';
+
+    /**
+     * @return string[] Liste des valeurs autorisées (pour Assert\Choice).
+     */
+    public static function values(): array
+    {
+        return array_column(self::cases(), 'value');
+    }
 }

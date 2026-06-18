@@ -16,7 +16,6 @@ use Doctrine\ORM\EntityManagerInterface;
  * Utilise Savana (plan PRO, maxUsers=20, 3 staff) pour avoir de la
  * marge sur les créations/réactivations.
  *
- * @group integration
  */
 class StaffCrudTest extends ApiTestCase
 {
@@ -57,7 +56,7 @@ class StaffCrudTest extends ApiTestCase
             // entre runs et faussent les assertions).
             $this->conn->executeStatement(
                 "DELETE FROM audit_logs
-                 WHERE entity_type IN ('staff_user','staff_invitation')"
+                 WHERE entity_type IN ('StaffUser','StaffInvitation','staff_user','staff_invitation')"
             );
             $this->conn->executeStatement(
                 "DELETE FROM staff_users WHERE email LIKE 'test-crud-%@example.sn'"
@@ -321,7 +320,7 @@ class StaffCrudTest extends ApiTestCase
             headers: ['Authorization' => "Bearer $token"]);
         self::assertResponseStatusCodeSame(201);
 
-        $logs = $this->fetchAuditLogs('staff_user', $created['data']['id']);
+        $logs = $this->fetchAuditLogs('StaffUser', $created['data']['id']);
         self::assertCount(1, $logs);
         self::assertSame('staff_user.created', $logs[0]['action']);
         self::assertSame(self::MANAGER, $logs[0]['staffUserEmail']);
@@ -348,7 +347,7 @@ class StaffCrudTest extends ApiTestCase
             headers: ['Authorization' => "Bearer $token"]);
         self::assertResponseStatusCodeSame(200);
 
-        $logs = $this->fetchAuditLogs('staff_user', $id);
+        $logs = $this->fetchAuditLogs('StaffUser', $id);
         // [0] = update, [1] = create (DESC)
         self::assertSame('staff_user.updated', $logs[0]['action']);
         self::assertSame('HOUSEKEEPER',  $logs[0]['before']['role']);
@@ -375,7 +374,7 @@ class StaffCrudTest extends ApiTestCase
             headers: ['Authorization' => "Bearer $token"]);
         self::assertResponseStatusCodeSame(200);
 
-        $logs = $this->fetchAuditLogs('staff_user', $id);
+        $logs = $this->fetchAuditLogs('StaffUser', $id);
         self::assertCount(1, $logs, 'Seul le created doit être loggué.');
         self::assertSame('staff_user.created', $logs[0]['action']);
     }
@@ -401,7 +400,7 @@ class StaffCrudTest extends ApiTestCase
             headers: ['Authorization' => "Bearer $token"]);
         self::assertResponseStatusCodeSame(200);
 
-        $logs = $this->fetchAuditLogs('staff_user', $receptionId);
+        $logs = $this->fetchAuditLogs('StaffUser', $receptionId);
         self::assertSame('staff_user.deactivated', $logs[0]['action']);
         self::assertTrue($logs[0]['before']['active']);
         self::assertFalse($logs[0]['after']['active']);
@@ -425,7 +424,7 @@ class StaffCrudTest extends ApiTestCase
             headers: ['Authorization' => "Bearer $token"]);
         self::assertResponseStatusCodeSame(200);
 
-        $logs = $this->fetchAuditLogs('staff_user', $id);
+        $logs = $this->fetchAuditLogs('StaffUser', $id);
         self::assertSame('staff_user.password_reset', $logs[0]['action']);
         // ⚠️ before/after doivent être null pour ne PAS fuiter le password
         self::assertNull($logs[0]['before']);

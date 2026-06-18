@@ -8,6 +8,7 @@ export interface NightAuditCurrent {
   canClose: boolean
   reason: string | null
   alreadyClosed: boolean
+  cutoffHour: number           // 0-23 — vient de tenant.settings (Sprint 14-A.2)
 }
 
 export interface NightAuditWarning {

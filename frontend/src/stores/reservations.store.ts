@@ -87,11 +87,25 @@ export const useReservationsStore = defineStore('reservations', () => {
     return updated
   }
 
-  async function cancel(id: string, reason: string): Promise<Reservation> {
-    const updated = await reservationService.cancel(id, reason)
+  async function cancel(
+    id: string,
+    reason: string,
+    feeOverrideXof?: string,
+  ): Promise<Awaited<ReturnType<typeof reservationService.cancel>>> {
+    const result = await reservationService.cancel(id, reason, feeOverrideXof)
     const index = reservations.value.findIndex(r => r.id === id)
-    if (index !== -1) reservations.value[index] = updated
-    return updated
+    if (index !== -1) reservations.value[index] = result.reservation
+    return result
+  }
+
+  async function markNoShow(
+    id: string,
+    policyOverride?: 'none' | 'first_night' | 'full',
+  ): Promise<Awaited<ReturnType<typeof reservationService.markNoShow>>> {
+    const result = await reservationService.markNoShow(id, policyOverride)
+    const index = reservations.value.findIndex(r => r.id === id)
+    if (index !== -1) reservations.value[index] = result.reservation
+    return result
   }
 
   function filterByStatus(status: ReservationStatus | 'all'): Reservation[] {
@@ -199,6 +213,7 @@ export const useReservationsStore = defineStore('reservations', () => {
     checkIn,
     checkOut,
     cancel,
+    markNoShow,
     filterByStatus,
     subscribeLive,
     unsubscribeLive,

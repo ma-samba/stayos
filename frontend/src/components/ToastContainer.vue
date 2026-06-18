@@ -114,7 +114,9 @@ function onToastClick(toast: typeof store.toasts[number]): void {
           class="toast-close"
           aria-label="Fermer"
           @click.stop="dismiss(t.id)"
-        ><i class="ti ti-x" aria-hidden="true"></i></button>
+        >
+<i class="ti ti-x" aria-hidden="true"></i>
+</button>
       </div>
     </transition-group>
   </div>

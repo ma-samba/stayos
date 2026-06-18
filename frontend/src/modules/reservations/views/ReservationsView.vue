@@ -7,9 +7,12 @@ import { formatCurrency } from '@/utils/currency'
 import ReservationForm from '@/modules/reservations/components/ReservationForm.vue'
 import CheckInModal from '@/modules/reservations/components/CheckInModal.vue'
 import CheckOutModal from '@/modules/reservations/components/CheckOutModal.vue'
+import CancelReservationModal from '@/modules/reservations/components/CancelReservationModal.vue'
+import { useNotificationsStore } from '@/stores/notifications.store'
 
 const store  = useReservationsStore()
 const router = useRouter()
+const notif  = useNotificationsStore()
 
 // ── Filtres ──
 
@@ -57,20 +60,46 @@ function openDetail(id: string): void {
 
 const showForm       = ref(false)
 const editTarget     = ref<Reservation | null>(null)
-const checkInTarget  = ref<string | null>(null)
-const checkOutTarget = ref<string | null>(null)
-const cancelTarget   = ref<string | null>(null)
-const cancelReason   = ref('')
+const checkInTarget    = ref<string | null>(null)
+const checkOutTarget   = ref<string | null>(null)
+const cancelTargetRes  = ref<Reservation | null>(null)
+const submittingCancel = ref(false)
 
 // ── Actions ──
 
-async function handleCancel(): Promise<void> {
-  if (!cancelTarget.value) return
+async function onConfirmCancel(
+  payload: { reason: string; feeOverrideXof?: string },
+): Promise<void> {
+  if (!cancelTargetRes.value) return
+  submittingCancel.value = true
   try {
-    await store.cancel(cancelTarget.value, cancelReason.value || 'Annulation sans motif')
-    cancelTarget.value = null
-    cancelReason.value = ''
-  } catch { /* toast handled by interceptor */ }
+    const result = await store.cancel(
+      cancelTargetRes.value.id,
+      payload.reason,
+      payload.feeOverrideXof,
+    )
+    cancelTargetRes.value = null
+    if (result.invoice !== null) {
+      notif.pushUiToast(
+        'success',
+        `Annulation enregistrée. Facture ${result.invoice.number} créée pour ${result.feeXof} XOF.`,
+      )
+    } else {
+      notif.pushUiToast('success', 'Annulation enregistrée. Aucune facturation.')
+    }
+  } catch (e: unknown) {
+    notif.pushUiToast('alert', extractError(e, 'Annulation impossible.'))
+  } finally {
+    submittingCancel.value = false
+  }
+}
+
+function extractError(e: unknown, fallback: string): string {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const resp = (e as { response?: { data?: { error?: string } } }).response
+    return resp?.data?.error ?? fallback
+  }
+  return fallback
 }
 
 // ── Helpers ──
@@ -134,8 +163,7 @@ onUnmounted(() => {
 
 <template>
   <div style="padding:1.5rem; max-width:1400px; margin:0 auto;">
-
-    <!-- ── En-tête ── -->
+<!-- ── En-tête ── -->
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
       <div>
         <h1 style="font-size:22px; font-weight:500; color:var(--pms-ink); margin-bottom:4px;">
@@ -277,7 +305,7 @@ onUnmounted(() => {
                   v-if="r.status === 'confirmed' || r.status === 'pending'"
                   class="btn btn-ghost btn-icon-sm"
                   title="Annuler"
-                  @click.stop="cancelTarget = r.id; cancelReason = ''"
+                  @click.stop="cancelTargetRes = r"
                 >
                   <i class="ti ti-x" aria-hidden="true"></i>
                 </button>
@@ -313,25 +341,14 @@ onUnmounted(() => {
     />
 
     <!-- ── Modal Annulation ── -->
-    <div
-      v-if="cancelTarget"
-      style="position:fixed; inset:0; background:rgba(26,23,20,0.4); display:flex; align-items:center; justify-content:center; z-index:100;"
-      @click.self="cancelTarget = null"
-    >
-      <div style="background:#fff; border-radius:var(--radius-xl); padding:1.5rem; width:400px; max-width:90vw;">
-        <h3 style="font-size:16px; font-weight:500; color:var(--pms-ink); margin-bottom:12px;">
-          Annuler la réservation
-        </h3>
-        <div class="input-wrap" style="margin-bottom:1rem;">
-          <label class="input-label">Motif d'annulation</label>
-          <input v-model="cancelReason" class="input" placeholder="Ex: Demande du client..." />
-        </div>
-        <div style="display:flex; gap:8px; justify-content:flex-end;">
-          <button class="btn btn-ghost btn-sm" @click="cancelTarget = null">Fermer</button>
-          <button class="btn btn-danger btn-sm" @click="handleCancel()">Annuler la réservation</button>
-        </div>
-      </div>
-    </div>
+    <CancelReservationModal
+      v-if="cancelTargetRes"
+      :reservation="cancelTargetRes"
+      :is-open="cancelTargetRes !== null"
+      :submitting="submittingCancel"
+      @close="cancelTargetRes = null"
+      @confirm="onConfirmCancel"
+    />
 
     <!-- ── Modal Édition ── -->
     <ReservationForm
@@ -340,8 +357,7 @@ onUnmounted(() => {
       @close="editTarget = null"
       @created="editTarget = null; store.fetchReservations()"
     />
-
-  </div>
+</div>
 </template>
 
 <style scoped>

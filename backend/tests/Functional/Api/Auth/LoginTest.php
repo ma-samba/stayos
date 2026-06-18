@@ -8,6 +8,7 @@ use App\Platform\Tenant\Domain\Enum\TenantStatus;
 use App\Tests\Functional\ApiTestCase;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
+use Symfony\Contracts\Cache\CacheInterface;
 
 /**
  * Tests du login JWT — POST /api/auth/login
@@ -28,6 +29,15 @@ class LoginTest extends ApiTestCase
         parent::setUp();
 
         $this->em = static::getContainer()->get(EntityManagerInterface::class);
+
+        // Réinitialise le bucket du rate-limiter login (filesystem en env
+        // test depuis Sprint 14-A.3 C.1) — chaque test démarre avec un
+        // compteur vierge sur cette IP, pour éviter qu'un test antérieur
+        // ayant consommé des tentatives ne déclenche l'IP-throttling.
+        $cache = static::getContainer()->get('cache.rate_limiter');
+        if ($cache instanceof CacheInterface) {
+            $cache->clear();
+        }
 
         $this->setUpTestTenant();
     }
@@ -124,19 +134,36 @@ class LoginTest extends ApiTestCase
 
     public function testLoginRateLimitAfterFiveAttempts(): void
     {
-        // Bug applicatif latent (hors scope de cette PR d'infra de test) :
-        // Symfony login_throttling lève TooManyLoginAttemptsAuthenticationException,
-        // mais Lexik AuthenticationFailureHandler::mapExceptionCodeToStatusCode()
-        // la mappe en 401 par défaut (car son code n'est pas dans 400-499).
-        // Confirmé manuellement via curl en env dev : 7 tentatives → 7 × 401,
-        // le rate-limit ne déclenche jamais 429.
-        // Fix nécessaire dans security.yaml ou via un listener
-        // Lexik::AUTHENTICATION_FAILURE qui mappe explicitement cette
-        // exception en 429 — modification du code applicatif, à traiter
-        // dans une PR dédiée.
-        self::markTestSkipped(
-            'Bug applicatif : Lexik mappe TooManyLoginAttemptsAuthenticationException '
-            .'en 401 au lieu de 429. À corriger hors scope infra de test.'
+        // login_throttling configuré à max_attempts=5 / 1 minute. Le
+        // listener LoginRateLimitListener (Sprint 14-A.3 C.1) mappe
+        // la TooManyLoginAttemptsAuthenticationException levée par
+        // Symfony en HTTP 429 (vs 401 par défaut de Lexik).
+        //
+        // ⚠️ En env test, le cache app est en `array` (in-memory) et
+        // KernelBrowser reboote le kernel entre chaque requête, ce qui
+        // réinitialiserait les compteurs du rate-limiter. On désactive
+        // le reboot pour que les 6 tentatives partagent le même cache.
+        $this->client->disableReboot();
+
+        $email = 'ratelimit@test-login.sn';
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->apiRequest(
+                'POST',
+                '/api/auth/login',
+                self::HOST,
+                ['email' => $email, 'password' => 'WrongPwd!'],
+            );
+            self::assertResponseStatusCodeSame(401, "Tentative $i doit échouer en 401");
+        }
+
+        // 6e tentative → rate limit → 429
+        $this->apiRequest(
+            'POST',
+            '/api/auth/login',
+            self::HOST,
+            ['email' => $email, 'password' => 'WrongPwd!'],
         );
+        self::assertResponseStatusCodeSame(429);
     }
 }

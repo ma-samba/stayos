@@ -36,7 +36,7 @@ const totalTenants = computed(() => {
   return metrics.value.activeTenantsCount
     + metrics.value.trialTenantsCount
     + metrics.value.suspendedTenantsCount
-    + metrics.value.cancelledTenantsCount
+    + metrics.value.churnedTenantsCount
 })
 
 const planChartData = computed(() => {
@@ -116,8 +116,8 @@ const planChartOptions = {
           <div class="stat-value" style="color:var(--pms-red);">{{ metrics.suspendedTenantsCount }}</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Désabonnés</div>
-          <div class="stat-value" style="color:var(--pms-ink-3);">{{ metrics.cancelledTenantsCount }}</div>
+          <div class="stat-label">Résiliés</div>
+          <div class="stat-value" style="color:var(--pms-ink-3);">{{ metrics.churnedTenantsCount }}</div>
         </div>
       </div>
 

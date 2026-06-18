@@ -2,10 +2,14 @@
 import { onMounted, ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { invoiceService } from '@/services/invoice.service'
-import type { Invoice, InvoiceStatus } from '@/types/entities'
+import type { Invoice, InvoiceStatus, Payment } from '@/types/entities'
 import { formatCurrency } from '@/utils/currency'
 import api from '@/services/api.service'
 import type { ApiSuccess } from '@/types/entities'
+import RefundModal from '@/modules/billing/components/RefundModal.vue'
+import { useNotificationsStore } from '@/stores/notifications.store'
+
+const notif = useNotificationsStore()
 
 const route  = useRoute()
 const router = useRouter()
@@ -16,13 +20,13 @@ const invoice  = ref<Invoice | null>(null)
 const loading  = ref(true)
 const error    = ref<string | null>(null)
 const actionLoading = ref(false)
-const successMsg    = ref<string | null>(null)
-const errorMsg      = ref<string | null>(null)
 
 // ── Modales ──
 
 const showPaymentModal  = ref(false)
 const showCheckoutModal = ref(false)
+const showRefundModal   = ref(false)
+const submittingRefund  = ref(false)
 
 // ── Paiement manuel ──
 
@@ -125,16 +129,48 @@ const canAct = computed(() => {
   return invoice.value.status !== 'cancelled'
 })
 
-// ── Actions ──
+const canRefund = computed<boolean>(() => {
+  if (!invoice.value) return false
+  return Number(invoice.value.paidXof) > 0
+})
 
-function flash(msg: string): void {
-  successMsg.value = msg
-  setTimeout(() => { successMsg.value = null }, 4000)
+// ── Helpers refunds (affichage liste paiements) ──
+
+function isRefund(p: Payment): boolean {
+  return Number(p.amountXof) < 0
 }
 
-function flashError(msg: string): void {
-  errorMsg.value = msg
-  setTimeout(() => { errorMsg.value = null }, 5000)
+function absAmount(p: Payment): string {
+  const n = Number(p.amountXof)
+  return Number.isNaN(n) ? p.amountXof : Math.abs(n).toFixed(2)
+}
+
+function extractRefundReason(notes: string | null): string {
+  if (!notes) return ''
+  return notes.replace(/^\[Remboursement\]\s*/i, '')
+}
+
+// ── Actions ──
+
+async function handleConfirmRefund(
+  payload: { amountXof: string; method: string; reason: string },
+): Promise<void> {
+  if (!invoice.value) return
+  submittingRefund.value = true
+  try {
+    const result = await invoiceService.refund(invoice.value.id, payload)
+    invoice.value = result.invoice
+    showRefundModal.value = false
+    notif.pushUiToast(
+      'success',
+      `Remboursement de ${payload.amountXof} XOF enregistré. Nouveau solde : ${result.invoice.balanceXof} XOF.`,
+    )
+    await load()
+  } catch (e: unknown) {
+    notif.pushUiToast('alert', extractError(e, 'Remboursement impossible.'))
+  } finally {
+    submittingRefund.value = false
+  }
 }
 
 async function handleIssue(): Promise<void> {
@@ -142,10 +178,10 @@ async function handleIssue(): Promise<void> {
   actionLoading.value = true
   try {
     await invoiceService.issue(invoice.value.id)
-    flash('Facture émise')
+    notif.pushUiToast('success', 'Facture émise')
     await load()
-  } catch (e: any) {
-    flashError(e.response?.data?.error ?? 'Erreur lors de l\'émission')
+  } catch (e: unknown) {
+    notif.pushUiToast('alert', extractError(e, 'Erreur lors de l\'émission'))
   } finally {
     actionLoading.value = false
   }
@@ -157,7 +193,7 @@ async function handleDownloadPdf(): Promise<void> {
   try {
     await invoiceService.downloadPdf(invoice.value.id)
   } catch {
-    flashError('Erreur lors du téléchargement du PDF')
+    notif.pushUiToast('alert', 'Erreur lors du téléchargement du PDF')
   } finally {
     actionLoading.value = false
   }
@@ -169,12 +205,12 @@ async function handleSendEmail(): Promise<void> {
   try {
     const result = await invoiceService.send(invoice.value.id)
     if (result.sent) {
-      flash(`Facture envoyée à ${result.to}`)
+      notif.pushUiToast('success', `Facture envoyée à ${result.to}`)
     } else {
-      flashError('Erreur lors de l\'envoi')
+      notif.pushUiToast('alert', 'Erreur lors de l\'envoi')
     }
-  } catch (e: any) {
-    flashError(e.response?.data?.error ?? 'Erreur lors de l\'envoi')
+  } catch (e: unknown) {
+    notif.pushUiToast('alert', extractError(e, 'Erreur lors de l\'envoi'))
   } finally {
     actionLoading.value = false
   }
@@ -204,10 +240,10 @@ async function submitPayment(): Promise<void> {
       notes: paymentForm.value.notes || undefined,
     })
     showPaymentModal.value = false
-    flash('Paiement enregistré')
+    notif.pushUiToast('success', 'Paiement enregistré')
     await load()
-  } catch (e: any) {
-    flashError(e.response?.data?.error ?? 'Erreur lors de l\'enregistrement')
+  } catch (e: unknown) {
+    notif.pushUiToast('alert', extractError(e, 'Erreur lors de l\'enregistrement'))
   } finally {
     actionLoading.value = false
   }
@@ -241,10 +277,18 @@ async function submitCheckout(): Promise<void> {
     showCheckoutModal.value = false
     // Rediriger vers la page de paiement Paydunya
     window.location.href = result.checkoutUrl
-  } catch (e: any) {
-    flashError(e.response?.data?.error ?? 'Erreur lors de la création du paiement')
+  } catch (e: unknown) {
+    notif.pushUiToast('alert', extractError(e, 'Erreur lors de la création du paiement'))
     actionLoading.value = false
   }
+}
+
+function extractError(e: unknown, fallback: string): string {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const resp = (e as { response?: { data?: { error?: string } } }).response
+    return resp?.data?.error ?? fallback
+  }
+  return fallback
 }
 
 // ── Gestion retour Paydunya ──
@@ -279,8 +323,7 @@ onMounted(async () => {
     </div>
 
     <div v-else-if="invoice">
-
-      <!-- ── Message retour Paydunya ── -->
+<!-- ── Message retour Paydunya ── -->
       <div
         v-if="paymentReturn === 'success'"
         style="padding:12px 16px; border-radius:var(--radius-md); margin-bottom:1rem; background:var(--pms-green-light); color:var(--pms-green); display:flex; align-items:center; gap:8px;"
@@ -292,20 +335,6 @@ onMounted(async () => {
         style="padding:12px 16px; border-radius:var(--radius-md); margin-bottom:1rem; background:var(--pms-gold-light); color:var(--pms-gold-dark); display:flex; align-items:center; gap:8px;"
       >
         <i class="ti ti-alert-triangle"></i> Paiement annulé par le client.
-      </div>
-
-      <!-- ── Toasts ── -->
-      <div
-        v-if="successMsg"
-        style="padding:12px 16px; border-radius:var(--radius-md); margin-bottom:1rem; background:var(--pms-green-light); color:var(--pms-green); display:flex; align-items:center; gap:8px;"
-      >
-        <i class="ti ti-circle-check"></i> {{ successMsg }}
-      </div>
-      <div
-        v-if="errorMsg"
-        style="padding:12px 16px; border-radius:var(--radius-md); margin-bottom:1rem; background:var(--pms-red-light); color:var(--pms-red); display:flex; align-items:center; gap:8px;"
-      >
-        <i class="ti ti-alert-circle"></i> {{ errorMsg }}
       </div>
 
       <!-- ── En-tête ── -->
@@ -370,6 +399,17 @@ onMounted(async () => {
           @click="handleSendEmail()"
         >
           <i class="ti ti-mail"></i> Envoyer par email
+        </button>
+
+        <!-- Rembourser (Sprint 13quinquies-B) -->
+        <button
+          v-if="canRefund"
+          class="btn btn-sm"
+          style="background:#B83232; color:#fff;"
+          :disabled="actionLoading"
+          @click="showRefundModal = true"
+        >
+          <i class="ti ti-arrow-back-up"></i> Rembourser
         </button>
       </div>
 
@@ -507,21 +547,46 @@ onMounted(async () => {
           <div
             v-for="p in invoice.payments"
             :key="p.id"
-            style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:var(--pms-sand); border-radius:var(--radius-md);"
+            class="payment-row"
+            :class="{ 'is-refund': isRefund(p) }"
           >
             <div style="display:flex; align-items:center; gap:10px;">
-              <i class="ti ti-cash" style="font-size:18px; color:var(--pms-ink-3);" aria-hidden="true"></i>
+              <i
+                :class="isRefund(p) ? 'ti ti-arrow-back-up' : 'ti ti-cash'"
+                style="font-size:18px;"
+                :style="isRefund(p) ? 'color:#B83232;' : 'color:var(--pms-ink-3);'"
+                aria-hidden="true"
+              ></i>
               <div>
-                <div style="font-size:13px; font-weight:500;">{{ methodLabels[p.method] || p.method }}</div>
+                <div style="font-size:13px; font-weight:500;">
+                  <span v-if="isRefund(p)" style="color:#B83232;">Remboursement</span>
+                  <template v-else>{{ methodLabels[p.method] || p.method }}</template>
+                  <span v-if="isRefund(p)" class="t-muted" style="font-weight:400; margin-left:6px;">
+                    · via {{ methodLabels[p.method] || p.method }}
+                  </span>
+                </div>
                 <div class="t-muted" style="font-size:12px;">
                   {{ formatShortDate(p.paidAt || p.processedAt) }}
                   <template v-if="p.reference"> · {{ p.reference }}</template>
                 </div>
+                <div
+                  v-if="isRefund(p) && p.notes"
+                  class="t-muted"
+                  style="font-size:11px; font-style:italic; margin-top:2px;"
+                >
+                  Raison : {{ extractRefundReason(p.notes) }}
+                </div>
               </div>
             </div>
             <div style="display:flex; align-items:center; gap:8px;">
-              <span style="font-weight:500; font-size:14px;">{{ formatCurrency(p.amountXof) }}</span>
               <span
+                class="amount"
+                :class="{ 'amount-refund': isRefund(p) }"
+              >
+                {{ isRefund(p) ? '-' : '+' }}{{ formatCurrency(absAmount(p)) }}
+              </span>
+              <span
+                v-if="!isRefund(p)"
                 :class="['badge', p.status === 'paid' ? 'badge-paid' : p.status === 'pending' ? 'badge-partial' : p.status === 'failed' ? 'badge-cancelled' : 'badge-draft']"
                 style="font-size:10px;"
               >
@@ -556,8 +621,7 @@ onMounted(async () => {
           </div>
         </div>
       </div>
-
-    </div>
+</div>
 
     <!-- ═══════════════════════════════════════════════════════ -->
     <!--  MODALE : Paiement manuel                              -->
@@ -655,7 +719,16 @@ onMounted(async () => {
       </div>
     </div>
 
-  </div>
+    <!-- Modal Refund (Sprint 13quinquies-B) -->
+    <RefundModal
+      v-if="invoice"
+      :invoice="invoice"
+      :is-open="showRefundModal"
+      :submitting="submittingRefund"
+      @close="showRefundModal = false"
+      @confirm="handleConfirmRefund"
+    />
+</div>
 </template>
 
 <style scoped>
@@ -710,4 +783,20 @@ onMounted(async () => {
   border-color: var(--pms-teal);
   color: #fff;
 }
+
+/* Lignes paiement + variantes refund (Sprint 13quinquies-B) */
+.payment-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--pms-sand);
+  border-radius: var(--radius-md);
+}
+.payment-row.is-refund {
+  background: #FBE5E5;
+  border-left: 3px solid #B83232;
+}
+.amount { font-weight: 500; font-size: 14px; }
+.amount-refund { color: #B83232; }
 </style>

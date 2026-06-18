@@ -189,6 +189,7 @@ class SubscriptionEmailService
                 'to'       => $to,
                 'template' => $template,
                 'error'    => $e->getMessage(),
+                'class'    => $e::class,
             ]);
 
             return false;
@@ -236,6 +237,7 @@ class SubscriptionEmailService
             $this->logger->error('findManager failed', [
                 'tenant' => $tenant->getSlug(),
                 'error'  => $e->getMessage(),
+                'class'  => $e::class,
             ]);
             return null;
         } finally {

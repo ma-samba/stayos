@@ -114,7 +114,7 @@ async function saveType(): Promise<void> {
   typeSuccess.value = false
 
   try {
-    const updated = await roomService.updateType(room.value.type.id, {
+    const updated = await roomTypeService.update(room.value.type.id, {
       name:         editTypeName.value,
       baseRateXof:  editTypeRate.value,
       maxOccupancy: editTypeOccupancy.value,

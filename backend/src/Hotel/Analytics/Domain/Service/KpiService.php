@@ -7,24 +7,108 @@ use App\Hotel\Analytics\Domain\DTO\DashboardKpis;
 use App\Hotel\Analytics\Domain\DTO\PeriodReport;
 use App\Hotel\Analytics\Infrastructure\Repository\AnalyticsRepository;
 use App\Hotel\Reservation\Domain\Entity\Reservation;
+use App\Shared\TenantContext;
+use Psr\Cache\CacheItemPoolInterface;
+use Symfony\Component\DependencyInjection\Attribute\Target;
 
 class KpiService
 {
     private const TAX_DIVISOR = '1.18';
 
+    // Sprint 14-B.2.2 — Cache KPIs dashboard.
+    // TTL court pour aujourd'hui (les chiffres bougent en
+    // continu — arrivées, check-ins, paiements). TTL long pour les
+    // dates passées (quasi-immuables après night audit, sauf
+    // réouverture qui déclenche une invalidation explicite).
+    private const TTL_TODAY_SECONDS = 300;
+    private const TTL_PAST_SECONDS  = 86400;
+
     public function __construct(
         private readonly AnalyticsRepository $analyticsRepository,
+        #[Target('kpi.cache')] private readonly ?CacheItemPoolInterface $kpiCache = null,
+        private readonly ?TenantContext $tenantContext = null,
     ) {}
 
     /**
-     * KPIs du jour (Africa/Dakar). Délégué à dashboardForDate(today).
+     * KPIs du jour (Africa/Dakar). Passe par le cache pour ne pas
+     * recalculer à chaque rafraîchissement du dashboard.
      */
     public function dashboardToday(): DashboardKpis
     {
         $tz    = new \DateTimeZone('Africa/Dakar');
         $today = new \DateTimeImmutable('today', $tz);
 
-        return $this->dashboardForDate($today);
+        return $this->dashboardForDateCached($today);
+    }
+
+    /**
+     * Variante cachée de dashboardForDate(). Scopée par tenantId
+     * (sécurité multi-tenant : sinon fuite cross-tenant). TTL court
+     * si $date == aujourd'hui (chiffres mouvants), TTL long si
+     * $date < aujourd'hui (passé quasi-immuable). Les dates futures
+     * bypassent le cache (calcul direct, sécurité prospective).
+     *
+     * Le night audit (DailyCloseService::buildSnapshot) appelle
+     * dashboardForDate() — pas cette variante — pour figer un
+     * snapshot toujours frais.
+     */
+    public function dashboardForDateCached(\DateTimeImmutable $date): DashboardKpis
+    {
+        $date = $date->setTime(0, 0);
+
+        // Pool ou tenant absent (tests purement unitaires, scénarios
+        // hors HTTP) → bypass cache, calcul direct.
+        if ($this->kpiCache === null || $this->tenantContext === null || !$this->tenantContext->has()) {
+            return $this->dashboardForDate($date);
+        }
+
+        $tz    = new \DateTimeZone('Africa/Dakar');
+        $today = new \DateTimeImmutable('today', $tz);
+
+        // Date future → bypass cache (pas de raison de cacher un futur
+        // mouvant, et pas envie de polluer le pool avec des entrées
+        // jamais ré-utilisées).
+        if ($date > $today) {
+            return $this->dashboardForDate($date);
+        }
+
+        $cacheKey = $this->buildCacheKey($date);
+        $item     = $this->kpiCache->getItem($cacheKey);
+
+        if ($item->isHit()) {
+            return $item->get();
+        }
+
+        $kpis = $this->dashboardForDate($date);
+
+        $ttl = $date < $today ? self::TTL_PAST_SECONDS : self::TTL_TODAY_SECONDS;
+        $item->set($kpis);
+        $item->expiresAfter($ttl);
+        $this->kpiCache->save($item);
+
+        return $kpis;
+    }
+
+    /**
+     * Invalide l'entrée de cache pour la date donnée du tenant courant.
+     * Appelé par DailyCloseService::close() (la clôture fige les KPIs
+     * de la journée — il faut purger un éventuel cache stale) et
+     * reopen() (l'état redevient mutable).
+     */
+    public function invalidateDashboardCache(\DateTimeImmutable $date): void
+    {
+        if ($this->kpiCache === null || $this->tenantContext === null || !$this->tenantContext->has()) {
+            return;
+        }
+
+        $this->kpiCache->deleteItem($this->buildCacheKey($date->setTime(0, 0)));
+    }
+
+    private function buildCacheKey(\DateTimeImmutable $date): string
+    {
+        $tenantId = (string) $this->tenantContext->get()->getId();
+
+        return sprintf('kpi_dashboard_%s_%s', $tenantId, $date->format('Y-m-d'));
     }
 
     /**

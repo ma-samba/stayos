@@ -141,6 +141,8 @@ const statusBanner = computed<StatusBanner | null>(() => {
         ctaLabel: 'Contacter le support',
         ctaTarget: 'mailto:support@stayos.sn',
       }
+    default:
+      return null
   }
 })
 
@@ -170,8 +172,7 @@ onMounted(fetchSubscription)
 
 <template>
   <div style="padding:1.5rem; max-width:1200px; margin:0 auto;">
-
-    <!-- ── En-tête ── -->
+<!-- ── En-tête ── -->
     <div style="margin-bottom:1.5rem;">
       <h1 style="font-size:22px; font-weight:500; color:var(--pms-ink); margin-bottom:4px;">
         Abonnement
@@ -199,8 +200,7 @@ onMounted(fetchSubscription)
     </div>
 
     <template v-else>
-
-      <!-- ── Bandeau d'état ── -->
+<!-- ── Bandeau d'état ── -->
       <div v-if="statusBanner" :class="['status-banner', `banner-${statusBanner.variant}`]">
         <i :class="['ti', statusBanner.icon]" aria-hidden="true" class="banner-icon"></i>
         <div class="banner-message">{{ statusBanner.message }}</div>
@@ -306,10 +306,8 @@ onMounted(fetchSubscription)
           Voir l'historique de factures
         </button>
       </div>
-
-    </template>
-
-  </div>
+</template>
+</div>
 </template>
 
 <style scoped>

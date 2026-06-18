@@ -91,8 +91,7 @@ async function confirm(): Promise<void> {
     @click.self="emit('close')"
   >
     <div style="background:#fff; border-radius:var(--radius-xl); padding:1.5rem; width:480px; max-width:92vw;">
-
-      <h3 style="font-size:16px; font-weight:500; color:var(--pms-ink); margin-bottom:4px;">
+<h3 style="font-size:16px; font-weight:500; color:var(--pms-ink); margin-bottom:4px;">
         <i class="ti ti-arrow-up-right" aria-hidden="true" style="color:var(--pms-teal);"></i>
         Passer au plan {{ plan.name }}
       </h3>
@@ -154,10 +153,12 @@ async function confirm(): Promise<void> {
       </div>
 
       <!-- Erreur -->
-      <div v-if="error"
+      <div
+v-if="error"
            style="background:var(--pms-red-light); color:var(--pms-red);
                   padding:8px 12px; border-radius:var(--radius-md);
-                  font-size:12px; margin-bottom:10px;">
+                  font-size:12px; margin-bottom:10px;"
+>
         <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ error }}
       </div>
 

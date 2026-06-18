@@ -42,13 +42,15 @@ class DailyCloseService
      *     lastCloseDate: string|null,
      *     canClose: bool,
      *     reason: string|null,
-     *     alreadyClosed: bool
+     *     alreadyClosed: bool,
+     *     cutoffHour: int
      * }
      */
     public function getCurrent(): array
     {
         $businessDate = $this->businessDate->getCurrentBusinessDate();
         $lastClose    = $this->repository->findLatestEffective();
+        $cutoffHour   = $this->tenantContext->get()->getBusinessDayCutoffHour();
 
         if ($lastClose === null) {
             return [
@@ -57,6 +59,7 @@ class DailyCloseService
                 'canClose'      => true,
                 'reason'        => null,
                 'alreadyClosed' => false,
+                'cutoffHour'    => $cutoffHour,
             ];
         }
 
@@ -70,6 +73,7 @@ class DailyCloseService
                 'canClose'      => false,
                 'reason'        => 'La journée courante est déjà clôturée.',
                 'alreadyClosed' => true,
+                'cutoffHour'    => $cutoffHour,
             ];
         }
 
@@ -87,6 +91,7 @@ class DailyCloseService
                     $missing,
                 ),
                 'alreadyClosed' => false,
+                'cutoffHour'    => $cutoffHour,
             ];
         }
 
@@ -96,6 +101,7 @@ class DailyCloseService
             'canClose'      => true,
             'reason'        => null,
             'alreadyClosed' => false,
+            'cutoffHour'    => $cutoffHour,
         ];
     }
 
@@ -143,8 +149,8 @@ class DailyCloseService
 
         $this->auditService->log(
             action:     'night_audit.closed',
-            entityType: 'daily_close',
-            entityId:   'new',
+            entityType: 'DailyClose',
+            entityId:   (string) $close->getId(),
             after:      [
                 'businessDate'  => $businessDate->format('Y-m-d'),
                 'cutoffHour'    => $cutoffHour,
@@ -157,6 +163,26 @@ class DailyCloseService
         );
 
         $this->entityManager->flush();
+
+        // Sprint 14-B.2.2 — Invalider le cache KPI dashboard pour la
+        // business date clôturée : ses chiffres deviennent figés
+        // côté snapshot, mais un éventuel cache live "today" doit
+        // disparaître pour ne pas servir une version stale après la
+        // clôture (chambres remises en CLEANING par night audit,
+        // factures issued, etc.).
+        // Try/catch : Redis injoignable ne doit JAMAIS faire échouer
+        // une clôture déjà flushée. On log et on continue — le TTL
+        // court du cache today (300s) limite la fenêtre de staleness.
+        try {
+            $this->kpiService->invalidateDashboardCache($businessDate);
+        } catch (\Throwable $e) {
+            $this->logger->warning('night_audit.cache_invalidation_failed', [
+                'tenant'        => $tenant->getSlug(),
+                'business_date' => $businessDate->format('Y-m-d'),
+                'error'         => $e->getMessage(),
+                'class'         => $e::class,
+            ]);
+        }
 
         $this->logger->info('night_audit.closed', [
             'tenant'         => $tenant->getSlug(),
@@ -202,7 +228,7 @@ class DailyCloseService
 
         $this->auditService->log(
             action:     'night_audit.reopened',
-            entityType: 'daily_close',
+            entityType: 'DailyClose',
             entityId:   (string) $close->getId(),
             after:      [
                 'businessDate' => $close->getBusinessDate()->format('Y-m-d'),
@@ -212,6 +238,21 @@ class DailyCloseService
         );
 
         $this->entityManager->flush();
+
+        // Sprint 14-B.2.2 — La réouverture rend l'état à nouveau
+        // mutable : invalider tout cache KPI stale pour cette date.
+        // Même garde que close() : Redis injoignable ne doit pas faire
+        // échouer une réouverture déjà flushée.
+        try {
+            $this->kpiService->invalidateDashboardCache($close->getBusinessDate());
+        } catch (\Throwable $e) {
+            $this->logger->warning('night_audit.cache_invalidation_failed', [
+                'tenant'        => $this->tenantContext->get()->getSlug(),
+                'business_date' => $close->getBusinessDate()->format('Y-m-d'),
+                'error'         => $e->getMessage(),
+                'class'         => $e::class,
+            ]);
+        }
 
         $this->logger->info('night_audit.reopened', [
             'tenant'        => $this->tenantContext->get()->getSlug(),
@@ -263,6 +304,10 @@ class DailyCloseService
             'invoices' => [
                 'issued'   => $invoicesIssued['count'],
                 'totalXof' => $invoicesIssued['total'],
+                // Somme exacte des taxXof des factures issued (bcmath
+                // via SUM SQL). Le PDF Twig lit cette valeur ; fallback
+                // float pour les snapshots pré-14-A.3.
+                'vatXof'   => $invoicesIssued['vat'],
             ],
             'rooms' => $roomsSnapshot,
             'meta' => [

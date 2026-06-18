@@ -70,8 +70,8 @@ function onClose(): void {
         <div class="input-wrap">
           <label class="input-label">Raison de la réouverture</label>
           <textarea
-            class="input textarea"
             v-model="reason"
+            class="input textarea"
             rows="3"
             placeholder="Ex: correction d'une facture mal saisie le matin"
             :disabled="submitting"

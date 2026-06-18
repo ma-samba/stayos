@@ -35,7 +35,8 @@
         <!-- Mercure — valeurs de test -->
         <env name="MERCURE_URL" value="http://mercure:9090/.well-known/mercure" force="true" />
         <env name="MERCURE_PUBLIC_URL" value="http://localhost:9090/.well-known/mercure" force="true" />
-        <env name="MERCURE_JWT_SECRET" value="stayos_mercure_test_secret" force="true" />
+        <!-- HS256 requiert >= 256 bits (32 octets) — secret 14-B.2.1 -->
+        <env name="MERCURE_JWT_SECRET" value="stayos_mercure_test_secret_min_32bytes_pad" force="true" />
         <!-- Messenger transport -->
         <env name="MESSENGER_TRANSPORT_DSN" value="redis://redis:6379/messages_test" force="true" />
         <!-- URLs -->
@@ -49,6 +50,10 @@
         <env name="PAYDUNYA_MASTER_KEY" value="test_master_key" force="true" />
         <env name="PAYDUNYA_PRIVATE_KEY" value="test_private_key" force="true" />
         <env name="PAYDUNYA_TOKEN" value="test_token" force="true" />
+        <!-- Sprint 14-B.1.2.2 — Hash check désactivé par défaut en
+             test. PaydunyaIpnHashVerificationTest override par test
+             via $_ENV avant boot kernel. -->
+        <env name="PAYDUNYA_HASH_VERIFICATION_ENABLED" value="false" force="true" />
         <!-- Redis + Lock -->
         <env name="REDIS_URL" value="redis://redis:6379" force="true" />
         <env name="REDIS_HOST" value="redis" force="true" />
@@ -106,8 +111,6 @@
     <groups>
         <exclude>
             <group>slow</group>
-            <!-- Les tests @group integration nécessitent make fixtures -->
-            <group>integration</group>
         </exclude>
     </groups>
 

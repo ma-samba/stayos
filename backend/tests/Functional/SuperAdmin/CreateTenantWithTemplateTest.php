@@ -13,7 +13,6 @@ use Doctrine\ORM\EntityManagerInterface;
  * Sprint 13ter — vérifie que `POST /superadmin/tenants` avec
  * `seed_template` pré-remplit correctement le schema tenant.
  *
- * @group integration
  */
 class CreateTenantWithTemplateTest extends ApiTestCase
 {

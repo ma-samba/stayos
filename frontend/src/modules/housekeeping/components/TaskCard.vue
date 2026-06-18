@@ -2,6 +2,9 @@
 import { ref } from 'vue'
 import type { CleaningTask, CleaningStatus, StaffUser } from '@/types/entities'
 import { housekeepingService } from '@/services/housekeeping.service'
+import { useNotificationsStore } from '@/stores/notifications.store'
+
+const notif = useNotificationsStore()
 
 const props = defineProps<{
   task: CleaningTask
@@ -13,7 +16,6 @@ const emit = defineEmits<{
 }>()
 
 const busy = ref(false)
-const errorMsg = ref<string | null>(null)
 const confirmingSkip = ref(false)
 
 // ── Assignation ──
@@ -51,27 +53,26 @@ function formatTime(dateStr: string): string {
 
 async function changeStatus(newStatus: CleaningStatus): Promise<void> {
   busy.value = true
-  errorMsg.value = null
   try {
     await housekeepingService.updateStatus(props.task.id, newStatus)
     emit('refresh')
   } catch (err: unknown) {
     const resp = (err as { response?: { data?: { error?: string }; status?: number } }).response
+    let msg: string
     if (resp?.status === 403) {
-      errorMsg.value = 'Vous ne pouvez modifier que vos propres tâches.'
+      msg = 'Vous ne pouvez modifier que vos propres tâches.'
     } else if (resp?.status === 422) {
-      errorMsg.value = resp.data?.error ?? 'Action impossible.'
+      msg = resp.data?.error ?? 'Action impossible.'
     } else {
-      errorMsg.value = 'Erreur inattendue.'
-
+      msg = 'Erreur inattendue.'
     }
+    notif.pushUiToast('alert', msg)
   } finally {
     busy.value = false
   }
 }
 
 async function openAssign(): Promise<void> {
-  errorMsg.value = null
   assigning.value = true
   selectedHousekeeperId.value = props.task.assignedToId ?? ''
   // Lazy-load au moment de l'ouverture pour ne pas spammer l'API quand
@@ -81,9 +82,9 @@ async function openAssign(): Promise<void> {
     housekeepers.value = await housekeepingService.listHousekeepers()
   } catch (err: unknown) {
     const resp = (err as { response?: { status?: number } }).response
-    errorMsg.value = resp?.status === 403
+    notif.pushUiToast('alert', resp?.status === 403
       ? 'Accès refusé.'
-      : 'Impossible de charger la liste du personnel.'
+      : 'Impossible de charger la liste du personnel.')
   } finally {
     loadingHousekeepers.value = false
   }
@@ -96,7 +97,6 @@ function cancelAssign(): void {
 
 async function confirmAssign(): Promise<void> {
   busy.value = true
-  errorMsg.value = null
   try {
     const targetId = selectedHousekeeperId.value === '' ? null : selectedHousekeeperId.value
     await housekeepingService.assign(props.task.id, targetId)
@@ -104,13 +104,15 @@ async function confirmAssign(): Promise<void> {
     emit('refresh')
   } catch (err: unknown) {
     const resp = (err as { response?: { data?: { error?: string }; status?: number } }).response
+    let msg: string
     if (resp?.status === 403) {
-      errorMsg.value = 'Vous n\'avez pas les droits pour assigner.'
+      msg = 'Vous n\'avez pas les droits pour assigner.'
     } else if (resp?.status === 422 || resp?.status === 404) {
-      errorMsg.value = resp.data?.error ?? 'Action impossible.'
+      msg = resp.data?.error ?? 'Action impossible.'
     } else {
-      errorMsg.value = 'Erreur inattendue.'
+      msg = 'Erreur inattendue.'
     }
+    notif.pushUiToast('alert', msg)
   } finally {
     busy.value = false
   }
@@ -160,11 +162,6 @@ async function confirmAssign(): Promise<void> {
 
     <!-- Notes -->
     <div v-if="task.notes" class="task-notes">{{ task.notes }}</div>
-
-    <!-- Error message -->
-    <div v-if="errorMsg" class="task-error">
-      <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ errorMsg }}
-    </div>
 
     <!-- Action buttons -->
     <div class="task-actions">
@@ -391,15 +388,6 @@ async function confirmAssign(): Promise<void> {
   color: var(--pms-ink-3);
   margin-top: 6px;
   line-height: 1.4;
-}
-
-.task-error {
-  font-size: 12px;
-  color: var(--pms-red);
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
 
 /* Actions */

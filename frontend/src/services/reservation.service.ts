@@ -6,6 +6,12 @@ import type {
   UpdateReservationPayload,
   ApiSuccess,
 } from '@/types/entities'
+import type {
+  CancellationQuote,
+  CancelResult,
+  NoShowPolicy,
+  NoShowResult,
+} from '@/types/financial-policies'
 
 // ──────────────────────────────────────────────────────────────
 //  Service Réservations
@@ -73,12 +79,53 @@ export const reservationService = {
   },
 
   /**
-   * POST /api/reservations/{id}/cancel
+   * POST /api/reservations/{id}/cancel — Sprint 13quinquies :
+   * applique la politique d'annulation tenant et émet une facture
+   * de frais si le montant > 0. `feeOverrideXof` est un geste
+   * commercial (tracé dans l'audit log).
    */
-  async cancel(id: string, reason: string): Promise<Reservation> {
-    const { data } = await api.post<ApiSuccess<Reservation>>(`/reservations/${id}/cancel`, {
-      reason,
-    })
+  async cancel(
+    id: string,
+    reason: string,
+    feeOverrideXof?: string,
+  ): Promise<CancelResult> {
+    const { data } = await api.post<ApiSuccess<CancelResult>>(
+      `/reservations/${id}/cancel`,
+      {
+        reason,
+        feeOverrideXof: feeOverrideXof ?? null,
+      },
+    )
+    return data.data
+  },
+
+  /**
+   * GET /api/reservations/{id}/cancellation-quote — Sprint 13quinquies.
+   * Calcule les frais sans modifier la réservation. Utilisé par la
+   * modal d'annulation pour pré-remplir le montant.
+   */
+  async getCancellationQuote(id: string): Promise<CancellationQuote> {
+    const { data } = await api.get<ApiSuccess<CancellationQuote>>(
+      `/reservations/${id}/cancellation-quote`,
+    )
+    return data.data
+  },
+
+  /**
+   * POST /api/reservations/{id}/no-show — Sprint 13quinquies.
+   * Marque la réservation NO_SHOW. La politique tenant s'applique
+   * par défaut ; le réceptionniste peut surcharger via `policyOverride`.
+   */
+  async markNoShow(
+    id: string,
+    policyOverride?: NoShowPolicy,
+  ): Promise<NoShowResult> {
+    const { data } = await api.post<ApiSuccess<NoShowResult>>(
+      `/reservations/${id}/no-show`,
+      {
+        policy: policyOverride ?? null,
+      },
+    )
     return data.data
   },
 }

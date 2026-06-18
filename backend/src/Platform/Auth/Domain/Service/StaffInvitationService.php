@@ -110,7 +110,7 @@ class StaffInvitationService
 
         $this->auditService->log(
             action:     'staff_invitation.created',
-            entityType: 'staff_invitation',
+            entityType: 'StaffInvitation',
             entityId:   (string) $invitation->getId(),
             before:     null,
             after:      [
@@ -210,7 +210,7 @@ class StaffInvitationService
         // L'identité de la personne qui a accepté est dans `after.email`.
         $this->auditService->log(
             action:     'staff_user.created_via_invitation',
-            entityType: 'staff_user',
+            entityType: 'StaffUser',
             entityId:   (string) $staffUser->getId(),
             before:     null,
             after:      [
@@ -249,7 +249,7 @@ class StaffInvitationService
 
         $this->auditService->log(
             action:     'staff_invitation.revoked',
-            entityType: 'staff_invitation',
+            entityType: 'StaffInvitation',
             entityId:   (string) $invitation->getId(),
             before:     ['status' => InvitationStatus::PENDING->value],
             after:      ['status' => InvitationStatus::REVOKED->value],

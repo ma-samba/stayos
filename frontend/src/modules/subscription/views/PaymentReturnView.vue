@@ -94,8 +94,7 @@ onBeforeUnmount(clearPoll)
 <template>
   <div class="payment-return">
     <div class="card payment-card">
-
-      <!-- ── Chargement initial ── -->
+<!-- ── Chargement initial ── -->
       <template v-if="loading">
         <div class="payment-icon payment-icon-neutral">
           <i class="ti ti-loader-2 spin" aria-hidden="true"></i>

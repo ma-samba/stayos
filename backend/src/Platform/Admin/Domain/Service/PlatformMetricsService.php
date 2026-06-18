@@ -118,7 +118,7 @@ final class PlatformMetricsService
             activeTenantsCount:    $byStatus[TenantStatus::ACTIVE->value],
             trialTenantsCount:     $byStatus[TenantStatus::TRIAL->value],
             suspendedTenantsCount: $byStatus[TenantStatus::SUSPENDED->value],
-            cancelledTenantsCount: $byStatus[TenantStatus::CHURNED->value],
+            churnedTenantsCount:   $byStatus[TenantStatus::CHURNED->value],
             newTenantsLast30Days:  $newTenants,
             churnLast30Days:       $churn,
             planDistribution:      $planDistribution,

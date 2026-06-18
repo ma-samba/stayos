@@ -72,6 +72,7 @@ class PaydunyaWebhookController extends AbstractController
             // Absorber toute erreur — ne jamais renvoyer d'erreur a Paydunya
             $this->logger->error('Paydunya IPN: unhandled error', [
                 'error'       => $e->getMessage(),
+                'class'       => $e::class,
                 'tenant_slug' => $tenantSlug,
             ]);
         }

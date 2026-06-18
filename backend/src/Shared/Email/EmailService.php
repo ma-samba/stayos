@@ -71,6 +71,7 @@ class EmailService
                 'to'             => $recipientEmail,
                 'invoice_number' => $invoice->getNumber(),
                 'error'          => $e->getMessage(),
+                'class'          => $e::class,
             ]);
 
             return false;
@@ -126,6 +127,7 @@ class EmailService
                 'to'    => $invitation->getEmail(),
                 'hotel' => $tenantSlug,
                 'error' => $e->getMessage(),
+                'class' => $e::class,
             ]);
 
             return false;

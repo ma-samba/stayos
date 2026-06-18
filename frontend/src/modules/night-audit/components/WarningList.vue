@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type { NightAuditWarning } from '@/types/night-audit'
 
 // ──────────────────────────────────────────────────────────────
@@ -13,7 +14,19 @@ const props = defineProps<{
   dense?: boolean
 }>()
 
+const router = useRouter()
 const openCodes = ref<Set<string>>(new Set())
+
+function goToReservation(d: Record<string, unknown>): void {
+  if (typeof d.id === 'string') {
+    router.push({ name: 'reservation-detail', params: { id: d.id } })
+  }
+}
+
+function isReservationDetail(code: string, d: Record<string, unknown>): boolean {
+  return (code === 'arrivals.pending' || code === 'departures.pending')
+    && typeof d.id === 'string'
+}
 
 function toggle(code: string): void {
   if (props.dense) return
@@ -75,7 +88,19 @@ function formatDetail(code: string, d: Record<string, unknown>): string {
           class="warning-details"
         >
           <li v-for="(d, i) in w.details" :key="i">
-            {{ formatDetail(w.code, d) }}
+            <span>{{ formatDetail(w.code, d) }}</span>
+            <button
+              v-if="!dense && isReservationDetail(w.code, d)"
+              class="detail-action"
+              :title="w.code === 'arrivals.pending' ? 'Marquer no-show' : 'Voir la résa'"
+              @click.stop="goToReservation(d)"
+            >
+              <i
+                :class="w.code === 'arrivals.pending' ? 'ti ti-user-off' : 'ti ti-eye'"
+                aria-hidden="true"
+              ></i>
+              {{ w.code === 'arrivals.pending' ? 'Marquer no-show' : 'Voir' }}
+            </button>
           </li>
         </ul>
       </div>
@@ -123,7 +148,28 @@ function formatDetail(code: string, d: Record<string, unknown>): string {
   font-size: 11px;
   margin: 0;
 }
-.warning-details li { padding: 2px 0; }
+.warning-details li {
+  padding: 3px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.detail-action {
+  background: #fff;
+  border: 0.5px solid #C4922A;
+  color: #8A6319;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all .15s;
+}
+.detail-action:hover { background: #C4922A; color: #fff; }
 
 .is-dense .warning-header { padding: 8px 12px; }
 .is-dense .warning-body { padding: 0 12px 10px 38px; }

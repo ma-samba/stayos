@@ -57,6 +57,25 @@ export const invoiceService = {
   },
 
   /**
+   * POST /api/invoices/{id}/refunds — Enregistrer un remboursement
+   * (sortie de caisse). Sprint 13quinquies-B.
+   *
+   * `amountXof` doit être > 0 (saisie utilisateur). Le service backend
+   * le négative avant persistance. La réponse contient l'invoice mise
+   * à jour (statut recalculé) ET le Payment refund créé.
+   */
+  async refund(
+    id: string,
+    payload: { amountXof: string; method: string; reason: string },
+  ): Promise<{ invoice: Invoice; refund: Payment }> {
+    const { data } = await api.post<ApiSuccess<{ invoice: Invoice; refund: Payment }>>(
+      `/invoices/${id}/refunds`,
+      payload,
+    )
+    return data.data
+  },
+
+  /**
    * POST /api/invoices/{id}/checkout — Initier un checkout Paydunya.
    */
   async checkout(

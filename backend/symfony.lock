@@ -71,15 +71,6 @@
     "knplabs/knp-paginator-bundle": {
         "version": "v6.10.0"
     },
-    "knplabs/knp-snappy-bundle": {
-        "version": "1.10",
-        "recipe": {
-            "repo": "github.com/symfony/recipes-contrib",
-            "branch": "main",
-            "version": "1.5",
-            "ref": "c81bdcf4a9d4e7b1959071457f9608631865d381"
-        }
-    },
     "lexik/jwt-authentication-bundle": {
         "version": "3.2",
         "recipe": {
@@ -127,6 +118,15 @@
             "tests/bootstrap.php",
             "bin/phpunit"
         ]
+    },
+    "sentry/sentry-symfony": {
+        "version": "5.10",
+        "recipe": {
+            "repo": "github.com/symfony/recipes-contrib",
+            "branch": "main",
+            "version": "5.0",
+            "ref": "aac2bc5220e9ab5b9e3838a7a4da90e7f74e6148"
+        }
     },
     "stof/doctrine-extensions-bundle": {
         "version": "1.15",
@@ -284,6 +284,18 @@
             "bin/phpunit",
             "phpunit.xml.dist",
             "tests/bootstrap.php"
+        ]
+    },
+    "symfony/property-info": {
+        "version": "7.4",
+        "recipe": {
+            "repo": "github.com/symfony/recipes",
+            "branch": "main",
+            "version": "7.3",
+            "ref": "dae70df71978ae9226ae915ffd5fad817f5ca1f7"
+        },
+        "files": [
+            "config/packages/property_info.yaml"
         ]
     },
     "symfony/routing": {

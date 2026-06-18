@@ -388,6 +388,7 @@ class AbonnementService
                 $this->logger->error('checkExpirations: tenant error', [
                     'tenant' => $sub->getTenant()->getSlug(),
                     'error'  => $e->getMessage(),
+                    'class'  => $e::class,
                 ]);
             }
         }

@@ -127,7 +127,7 @@ class StaffController extends AbstractApiController
 
         $this->auditService->log(
             action:     'staff_user.created',
-            entityType: 'staff_user',
+            entityType: 'StaffUser',
             entityId:   (string) $staff->getId(),
             before:     null,
             after:      [
@@ -228,7 +228,7 @@ class StaffController extends AbstractApiController
         if ($before !== $after) {
             $this->auditService->log(
                 action:     'staff_user.updated',
-                entityType: 'staff_user',
+                entityType: 'StaffUser',
                 entityId:   (string) $staff->getId(),
                 before:     $before,
                 after:      $after,
@@ -264,7 +264,7 @@ class StaffController extends AbstractApiController
         // (ni l'ancien hash ni le nouveau password).
         $this->auditService->log(
             action:     'staff_user.password_reset',
-            entityType: 'staff_user',
+            entityType: 'StaffUser',
             entityId:   (string) $staff->getId(),
             before:     null,
             after:      null,
@@ -312,7 +312,7 @@ class StaffController extends AbstractApiController
 
         $this->auditService->log(
             action:     'staff_user.deactivated',
-            entityType: 'staff_user',
+            entityType: 'StaffUser',
             entityId:   (string) $staff->getId(),
             before:     ['active' => true],
             after:      ['active' => false],
@@ -363,7 +363,7 @@ class StaffController extends AbstractApiController
 
         $this->auditService->log(
             action:     'staff_user.reactivated',
-            entityType: 'staff_user',
+            entityType: 'StaffUser',
             entityId:   (string) $staff->getId(),
             before:     ['active' => false],
             after:      ['active' => true],
@@ -397,7 +397,7 @@ class StaffController extends AbstractApiController
         }
 
         $logs = $this->auditLogRepository->findByEntity(
-            entityType: 'staff_user',
+            entityType: 'StaffUser',
             entityId:   (string) $staff->getId(),
             limit:      50,
         );

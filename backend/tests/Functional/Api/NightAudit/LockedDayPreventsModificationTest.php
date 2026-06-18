@@ -14,7 +14,6 @@ use Doctrine\ORM\EntityManagerInterface;
  * ReservationEngine. Les unit tests couvrent déjà la logique du
  * lock checker — ces tests vérifient le câblage end-to-end.
  *
- * @group integration
  */
 class LockedDayPreventsModificationTest extends ApiTestCase
 {

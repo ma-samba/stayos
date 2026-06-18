@@ -6,6 +6,9 @@ import { useAuthStore } from '@/stores/auth.store'
 import InviteStaffModal from '@/modules/staff/components/InviteStaffModal.vue'
 import CreateStaffModal from '@/modules/staff/components/CreateStaffModal.vue'
 import type { StaffInvitation, StaffMember, InvitationStatus } from '@/types/staff'
+import { useNotificationsStore } from '@/stores/notifications.store'
+
+const notif = useNotificationsStore()
 
 const router = useRouter()
 const auth   = useAuthStore()
@@ -18,7 +21,6 @@ const staff       = ref<StaffMember[]>([])
 const invitations = ref<StaffInvitation[]>([])
 const loading     = ref(true)
 const error       = ref<string | null>(null)
-const flash       = ref<string | null>(null)
 
 const showInvite  = ref(false)
 const showCreate  = ref(false)
@@ -64,20 +66,15 @@ async function load(): Promise<void> {
   }
 }
 
-function flashMessage(message: string): void {
-  flash.value = message
-  window.setTimeout(() => { flash.value = null }, 4000)
-}
-
 async function deactivate(member: StaffMember): Promise<void> {
   if (!window.confirm(`Désactiver ${member.fullName} ?`)) return
   try {
     await staffService.deactivateStaff(member.id)
     await load()
-    flashMessage(`${member.fullName} désactivé(e).`)
+    notif.pushUiToast('success', `${member.fullName} désactivé(e).`)
   } catch (e: unknown) {
     const msg = (e as { response?: { data?: { error?: string } } }).response?.data?.error
-    flashMessage(msg ?? 'Erreur lors de la désactivation.')
+    notif.pushUiToast('alert', msg ?? 'Erreur lors de la désactivation.')
   }
 }
 
@@ -85,10 +82,10 @@ async function reactivate(member: StaffMember): Promise<void> {
   try {
     await staffService.reactivateStaff(member.id)
     await load()
-    flashMessage(`${member.fullName} réactivé(e).`)
+    notif.pushUiToast('success', `${member.fullName} réactivé(e).`)
   } catch (e: unknown) {
     const msg = (e as { response?: { data?: { error?: string } } }).response?.data?.error
-    flashMessage(msg ?? 'Erreur lors de la réactivation.')
+    notif.pushUiToast('alert', msg ?? 'Erreur lors de la réactivation.')
   }
 }
 
@@ -97,9 +94,9 @@ async function revoke(inv: StaffInvitation): Promise<void> {
   try {
     await staffService.revokeInvitation(inv.id)
     await load()
-    flashMessage('Invitation révoquée.')
+    notif.pushUiToast('success', 'Invitation révoquée.')
   } catch {
-    flashMessage("Erreur lors de la révocation.")
+    notif.pushUiToast('alert', 'Erreur lors de la révocation.')
   }
 }
 
@@ -141,12 +138,8 @@ onMounted(load)
       </div>
     </header>
 
-    <div v-if="flash" class="staff-flash">
-      <i class="ti ti-info-circle"></i> {{ flash }}
-    </div>
-
     <!-- Stat card usage -->
-    <div class="staff-stats" v-if="!loading">
+    <div v-if="!loading" class="staff-stats">
       <div class="stat-card">
         <div class="stat-label">Membres actifs</div>
         <div class="stat-value">{{ usage.active }}</div>
@@ -286,12 +279,12 @@ onMounted(load)
     <InviteStaffModal
       v-if="showInvite"
       @close="showInvite = false"
-      @created="load(); flashMessage('Invitation envoyée.')"
+      @created="load(); notif.pushUiToast('success', 'Invitation envoyée.')"
     />
     <CreateStaffModal
       v-if="showCreate"
       @close="showCreate = false"
-      @created="load(); flashMessage('Compte créé.')"
+      @created="load(); notif.pushUiToast('success', 'Compte créé.')"
     />
   </div>
 </template>
@@ -321,16 +314,6 @@ onMounted(load)
 
 .staff-head-actions {
   display: flex; gap: 8px;
-}
-
-.staff-flash {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--pms-teal-light);
-  color: var(--pms-teal-dark);
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  margin-bottom: 1rem;
 }
 
 .staff-error {

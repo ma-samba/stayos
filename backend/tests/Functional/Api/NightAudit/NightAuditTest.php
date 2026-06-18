@@ -16,7 +16,6 @@ use Doctrine\ORM\EntityManagerInterface;
  * Avant chaque test on nettoie la table daily_closes et les audit logs
  * night_audit.* du schema savana pour que les tests soient isolés.
  *
- * @group integration
  */
 class NightAuditTest extends ApiTestCase
 {
@@ -58,7 +57,46 @@ class NightAuditTest extends ApiTestCase
         try {
             $this->conn->executeStatement('DELETE FROM daily_closes');
             $this->conn->executeStatement(
-                "DELETE FROM audit_logs WHERE entity_type = 'daily_close'"
+                "DELETE FROM audit_logs WHERE entity_type IN ('DailyClose','daily_close')"
+            );
+            // Nettoyer les factures seedées par les tests vatXof
+            $this->conn->executeStatement(
+                "DELETE FROM invoices WHERE number LIKE 'TEST-NA-VAT-%'"
+            );
+        } finally {
+            $this->conn->executeStatement('SET search_path TO public');
+            $this->em->clear();
+        }
+    }
+
+    /**
+     * Insère une facture issued avec un taxXof donné, datée aujourd'hui
+     * (issuedAt = NOW). Sert aux tests vatXof du snapshot.
+     */
+    private function seedIssuedInvoice(string $marker, string $subtotalXof, string $taxXof, string $totalXof): void
+    {
+        $this->conn->executeStatement(sprintf('SET search_path TO %s, public', $this->schema));
+        try {
+            $resId = $this->conn->executeQuery('SELECT id FROM reservations LIMIT 1')->fetchOne();
+            self::assertNotFalse($resId, 'Une réservation de fixtures est requise');
+
+            $id  = $this->conn->executeQuery('SELECT gen_random_uuid()')->fetchOne();
+            $now = (new \DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+
+            $this->conn->executeStatement(
+                "INSERT INTO invoices
+                 (id, reservation_id, number, status, subtotal_xof, tax_rate, tax_xof, total_xof,
+                  issued_at, created_at, updated_at)
+                 VALUES (:id, :res, :num, 'issued', :sub, '18.00', :tax, :total, :now, :now, :now)",
+                [
+                    'id'    => $id,
+                    'res'   => $resId,
+                    'num'   => 'TEST-NA-VAT-' . $marker,
+                    'sub'   => $subtotalXof,
+                    'tax'   => $taxXof,
+                    'total' => $totalXof,
+                    'now'   => $now,
+                ]
             );
         } finally {
             $this->conn->executeStatement('SET search_path TO public');
@@ -255,6 +293,58 @@ class NightAuditTest extends ApiTestCase
         self::assertArrayHasKey('kpis', $response['data']['snapshot']);
         self::assertArrayHasKey('cash', $response['data']['snapshot']);
         self::assertArrayHasKey('rooms', $response['data']['snapshot']);
+    }
+
+    public function testSnapshotIncludesExactVatXofFromIssuedInvoices(): void
+    {
+        // Stratégie : on seede 3 factures issued aujourd'hui avec
+        // taxXof connus, puis on calcule en BDD la somme TOTALE de
+        // toutes les factures issued aujourd'hui (seedées + fixtures).
+        // Le snapshot doit retourner exactement cette somme bcmath —
+        // preuve que vatXof n'est pas un calcul approximatif
+        // TTC/1.18*0.18 mais bien une SUM SQL des taxXof réels.
+        $this->seedIssuedInvoice('A', '1000.00',  '180.00',  '1180.00');
+        $this->seedIssuedInvoice('B', '10000.00', '1800.00', '11800.00');
+        $this->seedIssuedInvoice('C', '3002.78',  '540.50',  '3543.28');
+
+        // Somme bcmath en BDD des taxXof issued aujourd'hui
+        $bd = $this->currentBusinessDate();
+        $this->conn->executeStatement(sprintf('SET search_path TO %s, public', $this->schema));
+        try {
+            $row = $this->conn->fetchAssociative(
+                "SELECT COALESCE(SUM(tax_xof), 0) AS vat,
+                        COALESCE(SUM(total_xof), 0) AS total,
+                        COUNT(*) AS cnt
+                 FROM invoices
+                 WHERE issued_at IS NOT NULL
+                   AND issued_at >= :start AND issued_at < :end
+                   AND status <> 'cancelled'",
+                ['start' => $bd . ' 00:00:00', 'end' => $bd . ' 23:59:59']
+            );
+            $expectedVat   = number_format((float) $row['vat'],   2, '.', '');
+            $expectedTotal = number_format((float) $row['total'], 2, '.', '');
+            $expectedCount = (int) $row['cnt'];
+        } finally {
+            $this->conn->executeStatement('SET search_path TO public');
+            $this->em->clear();
+        }
+
+        // Sanity : nos 3 seedées contribuent bien 2520.50 à la somme
+        self::assertGreaterThanOrEqual('2520.50', $expectedVat);
+
+        $token = $this->login(self::MANAGER, self::MANAGER_PWD, self::HOST);
+        $resp = $this->apiRequest(
+            'POST', '/api/night-audit/close', self::HOST,
+            body:    ['force' => true],
+            headers: ['Authorization' => "Bearer $token"]
+        );
+        $this->assertApiSuccess($resp, 201);
+
+        $invoices = $resp['data']['snapshot']['invoices'];
+        self::assertArrayHasKey('vatXof', $invoices, 'Le snapshot doit exposer vatXof (Sprint 14-A.3 B.2)');
+        self::assertSame($expectedVat,   $invoices['vatXof']);
+        self::assertSame($expectedTotal, $invoices['totalXof']);
+        self::assertSame($expectedCount, (int) $invoices['issued']);
     }
 
     public function testCannotCloseTwiceSameDay(): void

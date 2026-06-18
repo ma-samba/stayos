@@ -20,7 +20,6 @@ use Doctrine\ORM\EntityManagerInterface;
  * On utilise Villa Collines (plan STARTER, maxRooms=20) parce que sa
  * limite est plus facile à approcher pour tester le blocage.
  *
- * @group integration
  */
 class RoomCrudTest extends ApiTestCase
 {

@@ -6,6 +6,7 @@ import { useNotificationsStore } from '@/stores/notifications.store'
 import { computed, ref, watch, onMounted } from 'vue'
 import NotificationCenter from '@/components/NotificationCenter.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
+import { mercureService } from '@/services/mercure.service'
 
 const route  = useRoute()
 const router = useRouter()
@@ -31,7 +32,11 @@ watch(
   (isAuth, was) => {
     if (isSuperAdminLayout.value) return
     if (isAuth && !was) notifications.connect()
-    if (!isAuth && was) notifications.disconnect()
+    if (!isAuth && was) {
+      notifications.disconnect()
+      // Sprint 14-B.2.1 — Reset le timer de refresh du cookie Mercure
+      mercureService.reset()
+    }
   },
 )
 
@@ -134,11 +139,9 @@ function logoutSuperAdmin(): void {
 
   <!-- Layout avec sidebar -->
   <div v-else style="display:flex; min-height:100vh;">
-
-    <!-- ── Sidebar ── -->
+<!-- ── Sidebar ── -->
     <nav :class="['sidebar', { 'sidebar-collapsed': isSidebarCollapsed }]">
-
-      <!-- Logo -->
+<!-- Logo -->
       <div class="sidebar-logo">
         <i class="ti ti-building" style="font-size:20px; color:var(--pms-gold);"></i>
         <span>StayOS</span>

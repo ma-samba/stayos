@@ -69,8 +69,7 @@ onUnmounted(() => {
 
 <template>
   <div style="padding:1.5rem; max-width:1100px; margin:0 auto;">
-
-    <!-- ══════════════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════ -->
     <!--  Section : Aujourd'hui                                 -->
     <!-- ══════════════════════════════════════════════════════ -->
 
@@ -96,8 +95,7 @@ onUnmounted(() => {
     <template v-else-if="store.todayKpis">
       <!-- Stat cards -->
       <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:12px; margin-bottom:1.5rem;">
-
-        <!-- Taux d'occupation -->
+<!-- Taux d'occupation -->
         <div class="stat-card">
           <div class="stat-label">Occupation (vendu)</div>
           <div class="stat-value">{{ store.todayKpis.occupancyRate }}%</div>
@@ -144,8 +142,7 @@ onUnmounted(() => {
           <div class="stat-label">Départs</div>
           <div class="stat-value">{{ store.todayKpis.departuresToday }}</div>
         </div>
-
-      </div>
+</div>
     </template>
 
     <!-- ══════════════════════════════════════════════════════ -->
@@ -180,8 +177,7 @@ onUnmounted(() => {
     <!-- Rapports disponibles -->
     <template v-if="canSeeReports">
       <div style="border-top:0.5px solid var(--pms-border); padding-top:1.5rem; margin-top:0.5rem;">
-
-        <h2 style="font-size:18px; font-weight:500; color:var(--pms-ink); margin-bottom:4px;">
+<h2 style="font-size:18px; font-weight:500; color:var(--pms-ink); margin-bottom:4px;">
           Rapports
         </h2>
         <p v-if="store.report && !store.loadingReport" class="t-muted" style="font-size:13px; margin-bottom:12px;">
@@ -227,8 +223,7 @@ onUnmounted(() => {
 
         <!-- Rapport chargé -->
         <template v-if="store.report && !store.loadingReport">
-
-          <!-- Agrégats période -->
+<!-- Agrégats période -->
           <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:12px; margin-bottom:1.5rem;">
             <div class="stat-card">
               <div class="stat-label">Occupation moyenne</div>
@@ -270,11 +265,8 @@ onUnmounted(() => {
               <SoldNightsChart :daily-series="store.report.dailySeries" />
             </div>
           </div>
-
-        </template>
-
-      </div>
+</template>
+</div>
     </template>
-
-  </div>
+</div>
 </template>

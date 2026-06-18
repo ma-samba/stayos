@@ -92,8 +92,7 @@ async function submit(): Promise<void> {
     @click.self="emit('close')"
   >
     <div style="background:#fff; border-radius:var(--radius-xl); padding:1.5rem; width:480px; max-width:90vw;">
-
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
         <h3 style="font-size:18px; font-weight:500; color:var(--pms-ink);">
           {{ rate ? 'Modifier le tarif saisonnier' : 'Nouveau tarif saisonnier' }}
         </h3>
@@ -161,7 +160,6 @@ async function submit(): Promise<void> {
           </template>
         </button>
       </div>
-
-    </div>
+</div>
   </div>
 </template>

@@ -10,6 +10,7 @@ use App\Platform\Subscription\Domain\Entity\SaasInvoice;
 use App\Platform\Subscription\Domain\Entity\Subscription;
 use App\Platform\Subscription\Domain\Enum\SaasInvoiceStatus;
 use App\Platform\Subscription\Infrastructure\Doctrine\SaasInvoiceRepository;
+use App\Shared\Url\TenantUrlBuilder;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -117,8 +118,8 @@ class SaasInvoiceService
         // Les pages de retour vivent sur le sous-domaine tenant (ex:
         // villa-collines.localhost:5173) — sinon le frontend ne peut
         // pas réhydrater le contexte tenant à l'atterrissage.
-        $returnUrl = $this->buildTenantUrl($this->frontendUrl, $tenant->getSlug(), '/subscription/payment-return');
-        $cancelUrl = $this->buildTenantUrl($this->frontendUrl, $tenant->getSlug(), '/subscription/payment-cancel');
+        $returnUrl = TenantUrlBuilder::build($this->frontendUrl, $tenant->getSlug(), '/subscription/payment-return');
+        $cancelUrl = TenantUrlBuilder::build($this->frontendUrl, $tenant->getSlug(), '/subscription/payment-cancel');
 
         $request = new PaymentCheckoutRequest(
             invoiceId:     (string) $invoice->getId(),
@@ -200,21 +201,4 @@ class SaasInvoiceService
         $this->entityManager->flush();
     }
 
-    /**
-     * Préfixe l'hôte de $baseUrl avec le slug tenant pour produire
-     * une URL frontend résoluble par le TenantMiddleware au retour
-     * de Paydunya.
-     *
-     *   http://localhost:5173  + villa-collines  → http://villa-collines.localhost:5173/...
-     *   https://stayos.sn      + villa-collines  → https://villa-collines.stayos.sn/...
-     */
-    private function buildTenantUrl(string $baseUrl, string $tenantSlug, string $path): string
-    {
-        $parsed = parse_url($baseUrl);
-        $scheme = $parsed['scheme'] ?? 'https';
-        $host   = $parsed['host']   ?? 'localhost';
-        $port   = isset($parsed['port']) ? ':' . $parsed['port'] : '';
-
-        return sprintf('%s://%s.%s%s%s', $scheme, $tenantSlug, $host, $port, $path);
-    }
 }

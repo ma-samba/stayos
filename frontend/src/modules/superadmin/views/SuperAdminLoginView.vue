@@ -50,8 +50,7 @@ async function submit(): Promise<void> {
 <template>
   <div class="sa-login-page">
     <div class="sa-login-card">
-
-      <div class="sa-login-logo">
+<div class="sa-login-logo">
         <i class="ti ti-shield-check" aria-hidden="true"></i>
         <span>StayOS</span>
       </div>
@@ -107,8 +106,7 @@ async function submit(): Promise<void> {
           <span v-else>Accéder au back-office</span>
         </button>
       </form>
-
-    </div>
+</div>
   </div>
 </template>
 

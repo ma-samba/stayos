@@ -6,7 +6,6 @@ use App\Hotel\Room\Application\DTO\BulkCreateRoomsDTO;
 use App\Hotel\Room\Application\DTO\CreateRoomDTO;
 use App\Hotel\Room\Application\DTO\UpdateRoomDTO;
 use App\Hotel\Room\Application\DTO\UpdateRoomStatusDTO;
-use App\Hotel\Room\Application\DTO\UpdateRoomTypeDTO;
 use App\Hotel\Room\Domain\Entity\Room;
 use App\Hotel\Room\Domain\Enum\RoomStatus;
 use App\Hotel\Room\Domain\Service\RoomService;
@@ -98,43 +97,6 @@ class RoomController extends AbstractApiController
             $this->roomTypeRepository->findBy([], ['sortOrder' => 'ASC']),
             ['room:read']
         );
-    }
-
-    /**
-     * PUT /api/rooms/types/{typeId} — Modifier un type (prix, capacité).
-     */
-    #[Route('/types/{typeId}', name: 'update_type', methods: ['PUT'])]
-    public function updateType(string $typeId, Request $request): JsonResponse
-    {
-        $type = $this->roomTypeRepository->find($typeId);
-        if (null === $type) {
-            return $this->jsonError('Type introuvable', 'NOT_FOUND', 404);
-        }
-
-        $data = json_decode($request->getContent(), true) ?? [];
-        $dto = new UpdateRoomTypeDTO();
-        $dto->name         = $data['name']         ?? null;
-        $dto->baseRateXof  = $data['baseRateXof']  ?? null;
-        $dto->maxOccupancy = $data['maxOccupancy'] ?? null;
-        $dto->description  = $data['description']  ?? null;
-
-        $errors = $this->validator->validate($dto);
-        if (count($errors) > 0) {
-            $messages = [];
-            foreach ($errors as $error) {
-                $messages[$error->getPropertyPath()] = $error->getMessage();
-            }
-            return $this->json([
-                'error'  => 'Données invalides',
-                'code'   => 'VALIDATION_ERROR',
-                'status' => 422,
-                'errors' => $messages,
-            ], 422);
-        }
-
-        $type = $this->roomService->updateType($type, $dto, $this->getStaffUser());
-
-        return $this->jsonSuccess($type, ['room:read']);
     }
 
     /**

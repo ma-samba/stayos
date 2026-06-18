@@ -39,7 +39,7 @@ const chartOptions = computed(() => ({
     legend: { display: false },
     tooltip: {
       callbacks: {
-        label: (ctx: { parsed: { y: number } }) => `${ctx.parsed.y.toFixed(1)} %`,
+        label: (ctx: { parsed: { y: number | null } }) => `${(ctx.parsed.y ?? 0).toFixed(1)} %`,
       },
     },
   },
@@ -47,7 +47,7 @@ const chartOptions = computed(() => ({
     y: {
       min: 0,
       max: 100,
-      ticks: { callback: (v: number) => `${v}%`, font: { size: 11 } },
+      ticks: { callback: (v: string | number) => `${v}%`, font: { size: 11 } },
       grid: { color: 'rgba(0,0,0,0.04)' },
     },
     x: {

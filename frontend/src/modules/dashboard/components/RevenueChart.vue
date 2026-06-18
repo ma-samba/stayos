@@ -40,7 +40,7 @@ const chartOptions = computed(() => ({
     legend: { display: false },
     tooltip: {
       callbacks: {
-        label: (ctx: { parsed: { y: number } }) => `${formatXof(ctx.parsed.y)} XOF`,
+        label: (ctx: { parsed: { y: number | null } }) => `${formatXof(ctx.parsed.y ?? 0)} XOF`,
       },
     },
   },
@@ -48,7 +48,7 @@ const chartOptions = computed(() => ({
     y: {
       beginAtZero: true,
       ticks: {
-        callback: (v: number) => formatXof(v),
+        callback: (v: string | number) => formatXof(typeof v === 'number' ? v : Number(v)),
         font: { size: 11 },
       },
       grid: { color: 'rgba(0,0,0,0.04)' },

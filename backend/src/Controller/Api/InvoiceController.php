@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller\Api;
 
 use App\Hotel\Billing\Application\DTO\RecordPaymentDTO;
+use App\Hotel\Billing\Application\DTO\RefundDTO;
 use App\Hotel\Billing\Domain\Entity\Invoice;
 use App\Hotel\Billing\Domain\Enum\PaymentMethod;
 use App\Hotel\Billing\Domain\Service\InvoiceService;
@@ -129,6 +130,55 @@ class InvoiceController extends AbstractApiController
     }
 
     /**
+     * POST /api/invoices/{id}/refunds — Enregistrer un remboursement.
+     * Body : { amountXof: string (>0), method: string, reason: string (>=5) }.
+     * RBAC : ROLE_ACCESS_BILLING (classe) — receptionniste, manager,
+     * comptable. Le comptable est légitime pour saisir un refund.
+     */
+    #[Route('/{id}/refunds', name: 'refund', methods: ['POST'])]
+    public function refund(Invoice $invoice, Request $request): JsonResponse
+    {
+        $data = json_decode($request->getContent() ?: '[]', true);
+        if (!is_array($data)) {
+            return $this->jsonError('Payload JSON invalide.', 'VALIDATION_ERROR', 422);
+        }
+
+        $dto = new RefundDTO();
+        $dto->amountXof = (string) ($data['amountXof'] ?? '');
+        $dto->method    = (string) ($data['method']    ?? '');
+        $dto->reason    = (string) ($data['reason']    ?? '');
+
+        $errors = $this->validator->validate($dto);
+        if (count($errors) > 0) {
+            $messages = [];
+            foreach ($errors as $e) {
+                $messages[$e->getPropertyPath()] = $e->getMessage();
+            }
+            return $this->json([
+                'error'  => 'Données invalides',
+                'code'   => 'VALIDATION_ERROR',
+                'status' => 422,
+                'errors' => $messages,
+            ], 422);
+        }
+
+        $refund = $this->invoiceService->refundPayment(
+            $invoice,
+            $dto,
+            $this->getStaffUser(),
+        );
+
+        return $this->jsonSuccess(
+            [
+                'invoice' => $invoice,
+                'refund'  => $refund,
+            ],
+            ['invoice:read', 'invoice:detail', 'payment:read'],
+            201,
+        );
+    }
+
+    /**
      * GET /api/invoices/{id}/pdf — Telecharger le PDF.
      */
     #[Route('/{id}/pdf', name: 'pdf', methods: ['GET'])]
@@ -180,6 +230,7 @@ class InvoiceController extends AbstractApiController
             $this->logger->error('Failed to generate invoice PDF', [
                 'invoice_id' => (string) $invoice->getId(),
                 'error'      => $e->getMessage(),
+                'class'      => $e::class,
             ]);
             return $this->jsonError(
                 'Erreur lors de la génération du PDF.',

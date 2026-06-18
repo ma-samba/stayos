@@ -2,16 +2,22 @@
 import { ref, onMounted, computed } from 'vue'
 import { useNotificationsStore } from '@/stores/notifications.store'
 import { floorService, roomTypeService, roomService } from '@/services/room.service'
+import { tenantSettingsService } from '@/services/tenant-settings.service'
 import type { Floor, Room, RoomType, RoomUsage } from '@/types/entities'
+import type {
+  CancellationPolicy,
+  NoShowPolicy,
+  TenantSettings,
+} from '@/types/financial-policies'
 import BulkCreateRoomsModal from '@/modules/property/components/BulkCreateRoomsModal.vue'
 
 // ──────────────────────────────────────────────────────────────
-//  HotelConfigurationView — Sprint 13ter
-//  3 onglets : Étages / Types de chambre / Chambres
+//  HotelConfigurationView — Sprint 13ter + 14-A.2
+//  4 onglets : Étages / Types de chambre / Chambres / Finances
 //  Réservé aux managers (RBAC géré côté router).
 // ──────────────────────────────────────────────────────────────
 
-type Tab = 'floors' | 'types' | 'rooms'
+type Tab = 'floors' | 'types' | 'rooms' | 'finances'
 const activeTab = ref<Tab>('floors')
 
 const notif = useNotificationsStore()
@@ -268,6 +274,69 @@ async function handleBulkCreated(): Promise<void> {
   await refreshRooms()
 }
 
+// ── Onglet Finances (Sprint 14-A.2) ───────────────────────────
+const financeSettings = ref<TenantSettings | null>(null)
+const financeDraft    = ref<{
+  noShowPolicy: NoShowPolicy
+  cancellationPolicy: CancellationPolicy
+  businessDayCutoffHour: number
+} | null>(null)
+const financeSaving = ref(false)
+const financeError  = ref<string | null>(null)
+
+const financeHasChanges = computed<boolean>(() => {
+  if (!financeSettings.value || !financeDraft.value) return false
+  return (
+    financeDraft.value.noShowPolicy          !== financeSettings.value.noShowPolicy ||
+    financeDraft.value.cancellationPolicy    !== financeSettings.value.cancellationPolicy ||
+    financeDraft.value.businessDayCutoffHour !== financeSettings.value.businessDayCutoffHour
+  )
+})
+
+async function refreshFinanceSettings(): Promise<void> {
+  try {
+    const settings = await tenantSettingsService.get()
+    financeSettings.value = settings
+    financeDraft.value = {
+      noShowPolicy:          settings.noShowPolicy,
+      cancellationPolicy:    settings.cancellationPolicy,
+      businessDayCutoffHour: settings.businessDayCutoffHour,
+    }
+    financeError.value = null
+  } catch (e: unknown) {
+    financeError.value = extractError(e, 'Chargement impossible.')
+  }
+}
+
+function resetFinanceDraft(): void {
+  if (financeSettings.value) {
+    financeDraft.value = {
+      noShowPolicy:          financeSettings.value.noShowPolicy,
+      cancellationPolicy:    financeSettings.value.cancellationPolicy,
+      businessDayCutoffHour: financeSettings.value.businessDayCutoffHour,
+    }
+  }
+}
+
+async function saveFinanceSettings(): Promise<void> {
+  if (!financeDraft.value || !financeHasChanges.value) return
+  financeSaving.value = true
+  try {
+    const updated = await tenantSettingsService.update({
+      noShowPolicy:          financeDraft.value.noShowPolicy,
+      cancellationPolicy:    financeDraft.value.cancellationPolicy,
+      businessDayCutoffHour: financeDraft.value.businessDayCutoffHour,
+    })
+    financeSettings.value = updated
+    // financeDraft reste aligné car le serveur renvoie les mêmes valeurs.
+    notif.pushUiToast('success', 'Politiques financières mises à jour.')
+  } catch (e: unknown) {
+    notif.pushUiToast('alert', extractError(e, 'Mise à jour impossible.'))
+  } finally {
+    financeSaving.value = false
+  }
+}
+
 // ── Utils ─────────────────────────────────────────────────────
 function extractError(e: unknown, fallback: string): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -285,7 +354,12 @@ function fmtXof(v: string): string {
 onMounted(async () => {
   loading.value = true
   try {
-    await Promise.all([refreshFloors(), refreshTypes(), refreshRooms()])
+    await Promise.all([
+      refreshFloors(),
+      refreshTypes(),
+      refreshRooms(),
+      refreshFinanceSettings(),
+    ])
   } finally {
     loading.value = false
   }
@@ -309,6 +383,9 @@ onMounted(async () => {
       <button class="tab" :class="{ active: activeTab === 'rooms' }" @click="activeTab = 'rooms'">
         Chambres
       </button>
+      <button class="tab" :class="{ active: activeTab === 'finances' }" @click="activeTab = 'finances'">
+        Finances
+      </button>
     </nav>
 
     <!-- ── Onglet Étages ── -->
@@ -317,15 +394,15 @@ onMounted(async () => {
 
       <form class="floor-create" @submit.prevent="createFloor">
         <input
+          v-model.number="newFloor.number"
           class="input"
           type="number"
-          v-model.number="newFloor.number"
           placeholder="N°"
           style="width:90px;"
         />
         <input
-          class="input"
           v-model="newFloor.name"
+          class="input"
           placeholder="Nom (optionnel — ex: Rez-de-chaussée)"
           style="flex:1;"
         />
@@ -341,8 +418,8 @@ onMounted(async () => {
         <tbody>
           <tr v-for="f in floors" :key="f.id">
             <template v-if="editingFloorId === f.id">
-              <td><input class="input" type="number" v-model.number="editingFloorDraft.number" style="width:80px;" /></td>
-              <td><input class="input" v-model="editingFloorDraft.name" /></td>
+              <td><input v-model.number="editingFloorDraft.number" class="input" type="number" style="width:80px;" /></td>
+              <td><input v-model="editingFloorDraft.name" class="input" /></td>
               <td><span class="badge">{{ f.active === false ? 'Inactif' : 'Actif' }}</span></td>
               <td style="text-align:right;">
                 <button class="btn btn-primary btn-sm" @click="saveFloor(f)">Enregistrer</button>
@@ -428,15 +505,15 @@ onMounted(async () => {
       </header>
 
       <div class="filters">
-        <select class="input" v-model="filterFloorId">
+        <select v-model="filterFloorId" class="input">
           <option value="">Tous les étages</option>
           <option v-for="f in floors" :key="f.id" :value="f.id">{{ f.number }} — {{ f.name || 'Étage ' + f.number }}</option>
         </select>
-        <select class="input" v-model="filterTypeId">
+        <select v-model="filterTypeId" class="input">
           <option value="">Tous les types</option>
           <option v-for="t in types" :key="t.id" :value="t.id">{{ t.name }}</option>
         </select>
-        <select class="input" v-model="filterActive">
+        <select v-model="filterActive" class="input">
           <option value="all">Toutes</option>
           <option value="active">Actives</option>
           <option value="inactive">Désactivées</option>
@@ -480,6 +557,106 @@ onMounted(async () => {
       <p v-else class="t-muted">Aucune chambre pour ces filtres.</p>
     </section>
 
+    <!-- ── Onglet Finances (Sprint 14-A.2) ── -->
+    <section v-if="activeTab === 'finances'" class="card">
+      <header class="section-header">
+        <div>
+          <h2>Politiques financières</h2>
+          <p class="t-muted">
+            Ces paramètres pilotent le calcul automatique des frais de
+            no-show et d'annulation, ainsi que l'heure de clôture comptable
+            journalière.
+          </p>
+        </div>
+      </header>
+
+      <div v-if="financeError" class="error-box">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>
+        <span>{{ financeError }}</span>
+        <button class="btn btn-secondary btn-sm" @click="refreshFinanceSettings">
+          Réessayer
+        </button>
+      </div>
+
+      <div v-else-if="financeDraft" class="finance-form">
+        <div class="form-row">
+          <label for="no-show-policy" class="input-label">Politique no-show</label>
+          <select
+            id="no-show-policy"
+            v-model="financeDraft.noShowPolicy"
+            class="input"
+          >
+            <option value="none">Aucun frais</option>
+            <option value="first_night">Première nuit facturée (recommandé)</option>
+            <option value="full">Séjour complet facturé</option>
+          </select>
+          <p class="hint">
+            Appliquée quand un client est marqué absent (no-show). Le
+            réceptionniste peut surcharger cas par cas.
+          </p>
+        </div>
+
+        <div class="form-row">
+          <label for="cancellation-policy" class="input-label">Politique d'annulation</label>
+          <select
+            id="cancellation-policy"
+            v-model="financeDraft.cancellationPolicy"
+            class="input"
+          >
+            <option value="flexible">Flexible (jamais de frais)</option>
+            <option value="moderate">Modérée (selon délai)</option>
+            <option value="strict">Stricte (toujours frais)</option>
+          </select>
+          <p class="hint">
+            <strong>Flexible</strong>&nbsp;: aucun frais quel que soit le délai.
+            <strong>Modérée</strong>&nbsp;: 0 si &gt; 48 h, 1<sup>re</sup> nuit
+            si 24–48 h, total si &lt; 24 h.
+            <strong>Stricte</strong>&nbsp;: 1<sup>re</sup> nuit toujours due,
+            total si &lt; 48 h. Le réceptionniste peut surcharger le montant
+            calculé (geste commercial).
+          </p>
+        </div>
+
+        <div class="form-row">
+          <label for="cutoff-hour" class="input-label">Heure de bascule comptable</label>
+          <select
+            id="cutoff-hour"
+            v-model.number="financeDraft.businessDayCutoffHour"
+            class="input"
+          >
+            <option v-for="h in 24" :key="h - 1" :value="h - 1">
+              {{ String(h - 1).padStart(2, '0') }} h 00
+            </option>
+          </select>
+          <p class="hint">
+            L'heure à partir de laquelle un check-in / check-out est
+            comptabilisé sur le jour suivant. Standard hôtelier&nbsp;: 5 h
+            du matin. Un check-out à 02 h reste comptabilisé sur la veille.
+          </p>
+        </div>
+
+        <div class="form-actions">
+          <button
+            class="btn btn-ghost"
+            :disabled="!financeHasChanges || financeSaving"
+            @click="resetFinanceDraft"
+          >
+            Annuler les modifications
+          </button>
+          <button
+            class="btn btn-primary"
+            :disabled="!financeHasChanges || financeSaving"
+            @click="saveFinanceSettings"
+          >
+            <span v-if="financeSaving">Enregistrement…</span>
+            <span v-else>Enregistrer</span>
+          </button>
+        </div>
+      </div>
+
+      <p v-else class="t-muted">Chargement…</p>
+    </section>
+
     <!-- ── Modal type ── -->
     <div v-if="showTypeModal" class="modal-backdrop" @click.self="showTypeModal = false">
       <div class="modal">
@@ -492,24 +669,24 @@ onMounted(async () => {
         <div class="modal-body">
           <div class="input-wrap">
             <label class="input-label">Nom</label>
-            <input class="input" v-model="typeDraft.name" placeholder="Standard, Deluxe, Suite..." />
+            <input v-model="typeDraft.name" class="input" placeholder="Standard, Deluxe, Suite..." />
           </div>
           <div class="input-wrap">
             <label class="input-label">Description</label>
-            <textarea class="input" v-model="typeDraft.description" rows="2"></textarea>
+            <textarea v-model="typeDraft.description" class="input" rows="2"></textarea>
           </div>
           <div style="display:flex; gap:12px;">
             <div class="input-wrap" style="flex:1;">
               <label class="input-label">Tarif de base XOF</label>
-              <input class="input" type="number" step="0.01" v-model="typeDraft.baseRateXof" />
+              <input v-model="typeDraft.baseRateXof" class="input" type="number" step="0.01" />
             </div>
             <div class="input-wrap" style="flex:1;">
               <label class="input-label">Capacité (adultes)</label>
-              <input class="input" type="number" min="1" max="20" v-model.number="typeDraft.maxOccupancy" />
+              <input v-model.number="typeDraft.maxOccupancy" class="input" type="number" min="1" max="20" />
             </div>
             <div class="input-wrap" style="width:110px;">
               <label class="input-label">Ordre</label>
-              <input class="input" type="number" min="0" v-model.number="typeDraft.sortOrder" />
+              <input v-model.number="typeDraft.sortOrder" class="input" type="number" min="0" />
             </div>
           </div>
         </div>
@@ -532,24 +709,24 @@ onMounted(async () => {
         <div class="modal-body">
           <div class="input-wrap">
             <label class="input-label">Numéro</label>
-            <input class="input" v-model="newRoom.number" placeholder="101" />
+            <input v-model="newRoom.number" class="input" placeholder="101" />
           </div>
           <div class="input-wrap">
             <label class="input-label">Type</label>
-            <select class="input" v-model="newRoom.typeId">
+            <select v-model="newRoom.typeId" class="input">
               <option v-for="t in types" :key="t.id" :value="t.id">{{ t.name }} — {{ fmtXof(t.baseRateXof) }}</option>
             </select>
           </div>
           <div class="input-wrap">
             <label class="input-label">Étage</label>
-            <select class="input" v-model="newRoom.floorId">
+            <select v-model="newRoom.floorId" class="input">
               <option value="">Aucun</option>
               <option v-for="f in floors" :key="f.id" :value="f.id">{{ f.number }} — {{ f.name || 'Étage ' + f.number }}</option>
             </select>
           </div>
           <div class="input-wrap">
             <label class="input-label">Notes (optionnel)</label>
-            <textarea class="input" v-model="newRoom.notes" rows="2"></textarea>
+            <textarea v-model="newRoom.notes" class="input" rows="2"></textarea>
           </div>
         </div>
         <footer class="modal-footer">
@@ -571,11 +748,11 @@ onMounted(async () => {
         <div class="modal-body">
           <div class="input-wrap">
             <label class="input-label">Numéro</label>
-            <input class="input" v-model="editRoomDraft.number" />
+            <input v-model="editRoomDraft.number" class="input" />
           </div>
           <div class="input-wrap">
             <label class="input-label">Type</label>
-            <select class="input" v-model="editRoomDraft.typeId">
+            <select v-model="editRoomDraft.typeId" class="input">
               <option v-for="t in types" :key="t.id" :value="t.id">
                 {{ t.name }} — {{ fmtXof(t.baseRateXof) }}
               </option>
@@ -583,7 +760,7 @@ onMounted(async () => {
           </div>
           <div class="input-wrap">
             <label class="input-label">Étage</label>
-            <select class="input" v-model="editRoomDraft.floorId">
+            <select v-model="editRoomDraft.floorId" class="input">
               <option value="">Aucun</option>
               <option v-for="f in floors" :key="f.id" :value="f.id">
                 {{ f.number }} — {{ f.name || 'Étage ' + f.number }}
@@ -592,7 +769,7 @@ onMounted(async () => {
           </div>
           <div class="input-wrap">
             <label class="input-label">Notes (optionnel)</label>
-            <textarea class="input" v-model="editRoomDraft.notes" rows="2"></textarea>
+            <textarea v-model="editRoomDraft.notes" class="input" rows="2"></textarea>
           </div>
         </div>
         <footer class="modal-footer">
@@ -668,4 +845,21 @@ textarea.input { height:auto; padding:10px 14px; }
 .btn-primary  { background:var(--pms-ink); color:#fff; }
 .btn-secondary{ background:#fff; color:var(--pms-ink); border:0.5px solid var(--pms-border-2); }
 .btn-ghost    { background:transparent; color:var(--pms-ink-3); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Onglet Finances (Sprint 14-A.2) ── */
+.finance-form  { display:flex; flex-direction:column; gap:22px; max-width:640px; }
+.form-row      { display:flex; flex-direction:column; gap:6px; }
+.form-row .input-label { text-transform:none; font-size:13px; color:var(--pms-ink); font-weight:500; letter-spacing:0; }
+.form-row .hint { font-size:12px; color:var(--pms-ink-3); margin:0; line-height:1.5; }
+.form-actions  { display:flex; justify-content:flex-end; gap:12px; padding-top:8px; }
+
+.error-box {
+  display:flex; align-items:center; gap:10px;
+  padding:12px 16px; border-radius:10px;
+  background: var(--pms-red-light, #F5DADA);
+  color: var(--pms-red, #B83232);
+  border: 0.5px solid rgba(184, 50, 50, 0.2);
+}
+.error-box span { flex:1; }
 </style>

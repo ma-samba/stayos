@@ -70,6 +70,7 @@ class PublishDailyAlertsHandler
                 $this->logger->error('PublishDailyAlerts: error on tenant', [
                     'slug'  => $tenant->getSlug(),
                     'error' => $e->getMessage(),
+                    'class' => $e::class,
                 ]);
             } finally {
                 $this->connection->executeStatement('SET search_path TO public');

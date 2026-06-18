@@ -1,35 +1,92 @@
+# ──────────────────────────────────────────────────────────────
+#  CORS — nelmio_cors
+#
+#  Structure :
+#  - Section principale `nelmio_cors:` → règles communes
+#    (methods, headers, max_age, origin_regex). Pas d'origin
+#    listée ici : exposer un origin global serait risqué.
+#  - `when@<env>:` ci-dessous → origins SCOPÉES par env.
+#    Séparation propre dev/test/prod : aucun origin dev en
+#    prod, et vice-versa.
+#
+#  Refacto Sprint 14-A.3 B.2 (recommandation Chantier 6 du
+#  Sprint 14-A.1).
+# ──────────────────────────────────────────────────────────────
+
 nelmio_cors:
     defaults:
         origin_regex: true
-        allow_origin:
-            - 'http://localhost:5173'
-            - 'http://localhost:8080'
-            - '%env(default::FRONTEND_URL)%'
-            - '^https://stayos.*\.vercel\.app$'
         allow_methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
         allow_headers: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Tenant-Slug']
         expose_headers: ['Link']
         max_age: 3600
+
     paths:
         '^/api':
-            allow_origin:
-                - 'http://localhost:5173'
-                # Subdomains *.localhost:5173 (dev local multi-tenant : savana.localhost, villa-collines.localhost, …)
-                - '^http://[a-z0-9-]+\.localhost:5173$'
-                - '%env(default::FRONTEND_URL)%'
-                - '^https://stayos.*\.vercel\.app$'
             allow_headers: ['Content-Type', 'Authorization', 'X-Tenant-Slug']
             allow_methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+            # Sprint 14-B.2.1 — Permet au browser d'envoyer/recevoir des
+            # cookies cross-origin (cookie httpOnly `mercureAuthorization`
+            # posé par GET /api/mercure/token). Combiné à
+            # `axios { withCredentials: true }` côté front et au cookie
+            # Set-Cookie côté back, c'est la condition pour que le cookie
+            # arrive bien dans le navigateur.
+            allow_credentials: true
             max_age: 3600
         '^/superadmin':
-            allow_origin: ['%env(default::SUPERADMIN_URL)%']
             allow_methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
             allow_headers: ['Content-Type', 'Authorization']
         '^/public':
-            allow_origin:
-                - 'http://localhost:5173'
-                - '^http://[a-z0-9-]+\.localhost:5173$'
-                - '%env(default::FRONTEND_URL)%'
-                - '^https://stayos.*\.vercel\.app$'
             allow_methods: ['GET', 'POST', 'OPTIONS']
             allow_headers: ['Content-Type', 'X-Tenant-Slug']
+
+when@dev:
+    nelmio_cors:
+        defaults:
+            allow_origin:
+                - 'http://localhost:5173'
+                - 'http://localhost:8080'
+        paths:
+            '^/api':
+                allow_origin:
+                    - 'http://localhost:5173'
+                    # Sous-domaines *.localhost:5173 (dev local multi-tenant :
+                    # savana.localhost, villa-collines.localhost, …)
+                    - '^http://[a-z0-9-]+\.localhost:5173$'
+            '^/public':
+                allow_origin:
+                    - 'http://localhost:5173'
+                    - '^http://[a-z0-9-]+\.localhost:5173$'
+
+when@test:
+    nelmio_cors:
+        defaults:
+            allow_origin:
+                - 'http://localhost:5173'
+        paths:
+            '^/api':
+                allow_origin:
+                    - 'http://localhost:5173'
+                    - '^http://[a-z0-9-]+\.localhost:5173$'
+            '^/public':
+                allow_origin:
+                    - 'http://localhost:5173'
+                    - '^http://[a-z0-9-]+\.localhost:5173$'
+
+when@prod:
+    nelmio_cors:
+        defaults:
+            allow_origin:
+                - '%env(FRONTEND_URL)%'
+        paths:
+            '^/api':
+                allow_origin:
+                    - '%env(FRONTEND_URL)%'
+                    # Vercel preview deploys conservés pour les PR previews
+                    - '^https://stayos.*\.vercel\.app$'
+            '^/superadmin':
+                allow_origin: ['%env(SUPERADMIN_URL)%']
+            '^/public':
+                allow_origin:
+                    - '%env(FRONTEND_URL)%'
+                    - '^https://stayos.*\.vercel\.app$'

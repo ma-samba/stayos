@@ -116,10 +116,10 @@ onMounted(() => {
     </header>
 
     <!-- Métriques en haut -->
-    <div class="sa-stats" v-if="metrics">
+    <div v-if="metrics" class="sa-stats">
       <div class="stat-card">
         <div class="stat-label">Total</div>
-        <div class="stat-value">{{ metrics.activeTenantsCount + metrics.trialTenantsCount + metrics.suspendedTenantsCount + metrics.cancelledTenantsCount }}</div>
+        <div class="stat-value">{{ metrics.activeTenantsCount + metrics.trialTenantsCount + metrics.suspendedTenantsCount + metrics.churnedTenantsCount }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Actifs</div>
@@ -134,8 +134,8 @@ onMounted(() => {
         <div class="stat-value" style="color:var(--pms-red);">{{ metrics.suspendedTenantsCount }}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Désabonnés</div>
-        <div class="stat-value" style="color:var(--pms-ink-3);">{{ metrics.cancelledTenantsCount }}</div>
+        <div class="stat-label">Résiliés</div>
+        <div class="stat-value" style="color:var(--pms-ink-3);">{{ metrics.churnedTenantsCount }}</div>
       </div>
     </div>
 

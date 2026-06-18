@@ -4,6 +4,9 @@ import { useRouter, useRoute } from 'vue-router'
 import { superadminService } from '@/services/superadmin.service'
 import type { TenantDetail, TenantStatus } from '@/types/superadmin'
 import { formatCurrency } from '@/utils/currency'
+import { useNotificationsStore } from '@/stores/notifications.store'
+
+const notif = useNotificationsStore()
 
 const router = useRouter()
 const route  = useRoute()
@@ -18,7 +21,6 @@ const suspendReason        = ref('')
 const showReactivateConfirm = ref(false)
 const actionLoading        = ref(false)
 const actionError          = ref<string | null>(null)
-const flashMessage         = ref<string | null>(null)
 
 // ── Édition ──
 const editing       = ref(false)
@@ -80,7 +82,7 @@ async function saveEdit(): Promise<void> {
     })
     editing.value = false
     await fetchTenant()
-    flash('Tenant modifié.')
+    notif.pushUiToast('success', 'Tenant modifié.')
   } catch (e: unknown) {
     const resp = (e as { response?: { status?: number; data?: { error?: string } } }).response
     actionError.value = resp?.data?.error ?? 'Erreur lors de la modification.'
@@ -118,20 +120,13 @@ async function applyForcePlan(): Promise<void> {
     forcePlanReason.value    = ''
     forcePlanPeriodEnd.value = ''
     await fetchTenant()
-    flash('Plan forcé. Subscription mise à jour.')
+    notif.pushUiToast('success', 'Plan forcé. Subscription mise à jour.')
   } catch (e: unknown) {
     const resp = (e as { response?: { status?: number; data?: { error?: string } } }).response
     actionError.value = resp?.data?.error ?? 'Erreur lors du changement de plan.'
   } finally {
     actionLoading.value = false
   }
-}
-
-function flash(message: string): void {
-  flashMessage.value = message
-  window.setTimeout(() => {
-    flashMessage.value = null
-  }, 4000)
 }
 
 async function suspendNow(): Promise<void> {
@@ -143,7 +138,7 @@ async function suspendNow(): Promise<void> {
     await fetchTenant()
     showSuspendConfirm.value = false
     suspendReason.value      = ''
-    flash('Tenant suspendu. L\'accès est bloqué jusqu\'à réactivation.')
+    notif.pushUiToast('success', 'Tenant suspendu. L\'accès est bloqué jusqu\'à réactivation.')
   } catch (e: unknown) {
     const resp = (e as { response?: { status?: number; data?: { error?: string } } }).response
     if (resp?.status === 422) {
@@ -164,7 +159,7 @@ async function reactivateNow(): Promise<void> {
     await superadminService.reactivateTenant(tenant.value.slug)
     await fetchTenant()
     showReactivateConfirm.value = false
-    flash('Tenant réactivé. L\'accès est rétabli.')
+    notif.pushUiToast('success', 'Tenant réactivé. L\'accès est rétabli.')
   } catch (e: unknown) {
     const resp = (e as { response?: { status?: number; data?: { error?: string } } }).response
     if (resp?.status === 422) {
@@ -223,15 +218,9 @@ onMounted(fetchTenant)
         </p>
       </header>
 
-      <!-- Flash -->
-      <div v-if="flashMessage" class="sa-flash">
-        <i class="ti ti-circle-check"></i> {{ flashMessage }}
-      </div>
-
       <!-- Grille principale -->
       <div class="sa-grid">
-
-        <!-- Informations -->
+<!-- Informations -->
         <section class="card">
           <div class="sa-section-head">
             <h2 class="sa-section-title">Informations</h2>
@@ -510,19 +499,6 @@ onMounted(fetchTenant)
   font-size: 12px;
   color: var(--pms-teal);
 }
-
-.sa-flash {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--pms-green-light);
-  color: var(--pms-green);
-  font-size: 13px;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  margin-bottom: 1rem;
-}
-.sa-flash i { font-size: 16px; }
 
 .sa-error {
   display: flex;

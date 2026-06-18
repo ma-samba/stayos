@@ -18,7 +18,7 @@ endif
         test-db-create test-db-drop test-migrate test-fixtures test-tenant-migrate \
         test-cache-clear db-reset-test test-integration test-watch \
         lint cs cs-fix stan worker worker-failed \
-        npm-install npm-build tenant-provision logs-php logs-front ps down down-v
+        npm-install npm-build npm-lint npm-type-check tenant-provision logs-php logs-front ps down down-v
 
 GREEN  = \033[0;32m
 YELLOW = \033[0;33m
@@ -304,3 +304,6 @@ npm-build: ## 🏗 Build production du frontend
 
 npm-lint: ## 🔍 Lint Vue.js
 	docker compose exec frontend npm run lint
+
+npm-type-check: ## 🔍 Type-check Vue + TS sans build
+	docker compose exec frontend npm run type-check

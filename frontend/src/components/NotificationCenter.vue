@@ -98,7 +98,9 @@ function relativeTime(iso: string): string {
           v-if="store.unreadCount > 0"
           class="notif-link"
           @click="onMarkAll"
-        >Tout marquer comme lu</button>
+        >
+Tout marquer comme lu
+</button>
       </header>
 
       <div v-if="recent.length === 0" class="notif-empty">

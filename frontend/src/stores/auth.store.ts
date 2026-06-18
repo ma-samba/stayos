@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { useNotificationsStore } from '@/stores/notifications.store'
 
 interface JwtClaims {
   sub: string
@@ -45,9 +44,10 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout(): void {
-    // Fermer les EventSource Mercure avant de purger les tokens.
-    try { useNotificationsStore().disconnect() } catch { /* noop */ }
-
+    // Le watch `auth.isAuthenticated` dans App.vue ferme automatiquement
+    // les EventSource Mercure dès que token devient null (transition
+    // true → false). Ne pas appeler disconnect() ici — ce serait un
+    // doublon retiré au Sprint 14-A.3 Paquet B.1.
     token.value        = null
     refreshToken.value = null
     claims.value       = null

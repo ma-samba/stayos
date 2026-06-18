@@ -1,19 +1,19 @@
 framework:
     cache:
-        # Unique name of your app: used to compute stable namespaces for cache keys.
-        #prefix_seed: your_vendor_name/app_name
+        # Sprint 14-B.2.2 — Pool dédié pour les KPIs dashboard.
+        # En dev/prod : Redis (provider construit à partir de REDIS_URL).
+        # En test : override en cache.adapter.array via when@test plus bas
+        # (pour ne pas dépendre d'un Redis en CI).
+        default_redis_provider: '%env(REDIS_URL)%'
+        pools:
+            kpi.cache:
+                adapter: cache.adapter.redis
+                default_lifetime: 300
 
-        # The "app" cache stores to the filesystem by default.
-        # The data in this cache should persist between deploys.
-        # Other options include:
-
-        # Redis
-        #app: cache.adapter.redis
-        #default_redis_provider: redis://localhost
-
-        # APCu (not recommended with heavy random-write workloads as memory fragmentation can cause perf issues)
-        #app: cache.adapter.apcu
-
-        # Namespaced pools use the above "app" backend by default
-        #pools:
-            #my.dedicated.cache: null
+when@test:
+    framework:
+        cache:
+            pools:
+                kpi.cache:
+                    adapter: cache.adapter.array
+                    default_lifetime: 300

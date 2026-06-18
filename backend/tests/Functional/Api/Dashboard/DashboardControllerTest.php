@@ -15,7 +15,6 @@ use App\Tests\Functional\ApiTestCase;
  *   Villa Collines (Plan Starter — features: [])
  *     - MANAGER:       admin@villa-collines.sn     / admin123
  *
- * @group integration
  */
 class DashboardControllerTest extends ApiTestCase
 {

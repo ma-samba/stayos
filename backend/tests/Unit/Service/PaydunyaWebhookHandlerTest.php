@@ -471,4 +471,130 @@ class PaydunyaWebhookHandlerTest extends TestCase
 
         $this->handler->handle($this->makeSaasPayload(), self::SECRET, self::TENANT, isSaas: true);
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  Sprint 14-B.1.2.2 — Vérification du hash SHA-512 MasterKey Paydunya
+    // ──────────────────────────────────────────────────────────────────────
+
+    private const PAYDUNYA_MASTER_KEY_TEST = 'test_master_key_for_unit_tests';
+
+    private function makeHandlerWithHashCheck(
+        bool $enabled = true,
+        string $masterKey = self::PAYDUNYA_MASTER_KEY_TEST,
+    ): PaydunyaWebhookHandler {
+        return new PaydunyaWebhookHandler(
+            $this->gatewayRegistry,
+            $this->tenantRepository,
+            $this->em,
+            $this->connection,
+            $this->invoiceService,
+            $this->emailService,
+            $this->mercure,
+            $this->tenantContext,
+            $this->saasInvoiceRepository,
+            $this->saasInvoiceService,
+            $this->abonnementService,
+            new NullLogger(),
+            $masterKey,
+            $enabled,
+        );
+    }
+
+    public function testInvalidHashStopsProcessingBeforeTenantLookup(): void
+    {
+        $handler = $this->makeHandlerWithHashCheck(enabled: true);
+
+        // Le handler doit s'arrêter à l'étape 0 — pas de tenant
+        // resolution, pas de search_path, pas de lookup Payment.
+        $this->tenantRepository->expects($this->never())->method('findActiveBySlug');
+        $this->connection->expects($this->never())->method('executeStatement');
+        $this->em->expects($this->never())->method('getRepository');
+
+        $payload = [
+            'invoice' => ['token' => self::TOKEN],
+            'hash'    => str_repeat('a', 128), // hash invalide
+        ];
+
+        $handler->handle($payload, self::SECRET, self::TENANT);
+    }
+
+    public function testMissingHashStopsProcessingWhenEnabled(): void
+    {
+        $handler = $this->makeHandlerWithHashCheck(enabled: true);
+
+        // Hash absent du payload : doit être traité comme invalide.
+        $this->tenantRepository->expects($this->never())->method('findActiveBySlug');
+
+        $payload = ['invoice' => ['token' => self::TOKEN]];
+
+        $handler->handle($payload, self::SECRET, self::TENANT);
+    }
+
+    public function testValidHashAllowsProcessingToContinue(): void
+    {
+        $handler = $this->makeHandlerWithHashCheck(enabled: true);
+
+        // Hash valide → handler poursuit jusqu'à la résolution
+        // tenant (et au-delà). On vérifie que findActiveBySlug
+        // a été appelé.
+        $this->tenantRepository->expects($this->once())
+            ->method('findActiveBySlug')
+            ->with(self::TENANT)
+            ->willReturn(null); // tenant inexistant → sortie propre après l'étape 0
+
+        $payload = [
+            'invoice' => ['token' => self::TOKEN],
+            'hash'    => hash('sha512', self::PAYDUNYA_MASTER_KEY_TEST),
+        ];
+
+        $handler->handle($payload, self::SECRET, self::TENANT);
+    }
+
+    public function testHashCheckSkippedWhenDisabled(): void
+    {
+        $handler = $this->makeHandlerWithHashCheck(enabled: false, masterKey: '');
+
+        // Vérification désactivée → handler ignore l'étape 0
+        // même si hash absent / MasterKey vide.
+        $this->tenantRepository->expects($this->once())
+            ->method('findActiveBySlug')
+            ->with(self::TENANT)
+            ->willReturn(null);
+
+        $payload = ['invoice' => ['token' => self::TOKEN]]; // pas de hash
+
+        $handler->handle($payload, self::SECRET, self::TENANT);
+    }
+
+    public function testEnabledWithEmptyMasterKeyRejectsEverything(): void
+    {
+        // Mauvaise config prod : flag ON mais MasterKey vide.
+        // Mode strict : tous les IPN sont rejetés.
+        $handler = $this->makeHandlerWithHashCheck(enabled: true, masterKey: '');
+
+        $this->tenantRepository->expects($this->never())->method('findActiveBySlug');
+
+        $payload = [
+            'invoice' => ['token' => self::TOKEN],
+            'hash'    => hash('sha512', self::PAYDUNYA_MASTER_KEY_TEST),
+        ];
+
+        $handler->handle($payload, self::SECRET, self::TENANT);
+    }
+
+    public function testHashCheckAppliesToSaasFlowToo(): void
+    {
+        $handler = $this->makeHandlerWithHashCheck(enabled: true);
+
+        // Pour isSaas=true aussi, l'étape 0 doit barrer la route.
+        $this->tenantRepository->expects($this->never())->method('findActiveBySlug');
+        $this->saasInvoiceRepository->expects($this->never())->method('findByPaydunyaToken');
+
+        $payload = [
+            'invoice' => ['token' => self::SAAS_TOKEN],
+            'hash'    => 'wrong_hash',
+        ];
+
+        $handler->handle($payload, self::SECRET, self::TENANT, isSaas: true);
+    }
 }

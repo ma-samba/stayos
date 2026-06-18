@@ -2,6 +2,31 @@ parameters:
     default_frontend_url: '%env(FRONTEND_URL)%'
     default_backend_url: '%env(APP_BACKEND_URL)%'
 
+    # Sprint 14-A.3 C.1 : override du paramètre Symfony pour passer
+    # un ExposeSecurityLevel enum au lieu d'un bool à
+    # AuthenticatorManager. Évite la deprecation
+    # "Passing a boolean as exposeSecurityErrors parameter is
+    # deprecated" (symfony/security-http 7.3+).
+    # `None` = équivalent de l'ancien `hide_user_not_found: true`
+    # (défaut) : on ne révèle ni l'inexistence de l'utilisateur ni
+    # les exceptions de statut de compte.
+    security.authentication.hide_user_not_found: !php/enum Symfony\Component\Security\Http\Authentication\ExposeSecurityLevel::None
+
+    # Sprint 14-B.1.1 — Headers HTTP de sécurité.
+    # HSTS désactivé en dev/test (HTTP localhost), activé en
+    # prod via when@prod. CSP activé partout (backend = API JSON
+    # pure, peut se permettre une politique ultra-stricte).
+    security.headers.hsts_enabled: false
+    security.headers.csp_enabled: true
+
+    # Sprint 14-B.2.1 — Cookie Mercure subscriber.
+    # En dev/test : pas de domain (cookie host-only), pas de
+    # secure (HTTP localhost autorisé).
+    # En prod : domain `.getstayos.com` pour cross-subdomain, secure
+    # obligatoire (HTTPS only).
+    mercure.cookie.secure: false
+    mercure.cookie.domain: ''
+
 services:
     _defaults:
         autowire: true
@@ -50,3 +75,57 @@ services:
             - connect:
                 - '%env(resolve:REDIS_HOST)%'
                 - '%env(int:REDIS_PORT)%'
+
+    # Sprint 14-B.1.1 — Subscriber des headers HTTP de sécurité.
+    App\Shared\Http\EventSubscriber\SecurityHeadersSubscriber:
+        arguments:
+            $hstsEnabled: '%security.headers.hsts_enabled%'
+            $cspEnabled: '%security.headers.csp_enabled%'
+
+    # Sprint 14-B.1.2.1 — Subscriber rate limiting global.
+    # Les 4 RateLimiterFactory correspondent aux limiters définis
+    # dans rate_limiter.yaml. Symfony auto-génère un service
+    # `limiter.<nom>` par limiter — nécessite un binding explicite
+    # car le type RateLimiterFactory est utilisé pour 4 services
+    # distincts.
+    App\Shared\Http\EventSubscriber\RateLimitSubscriber:
+        arguments:
+            $apiReadLimiter:   '@limiter.api_read'
+            $apiWriteLimiter:  '@limiter.api_write'
+            $webhooksLimiter:  '@limiter.webhooks'
+            $otpResendLimiter: '@limiter.otp_resend'
+
+    # Sprint 14-B.1.2.2 — Vérification hash SHA-512 MasterKey
+    # Paydunya sur les IPN. La MasterKey vient de l'env. Le flag
+    # d'activation permet de désactiver en dev/test (où la
+    # MasterKey peut être vide ou bidon). À activer dans Heroku
+    # Config Vars en prod au Sprint 14-C.
+    App\Hotel\Billing\Domain\Service\PaydunyaWebhookHandler:
+        arguments:
+            $paydunyaMasterKey:        '%env(PAYDUNYA_MASTER_KEY)%'
+            $hashVerificationEnabled:  '%env(bool:PAYDUNYA_HASH_VERIFICATION_ENABLED)%'
+
+    # Sprint 14-B.2.1 — Service de génération JWT subscriber Mercure
+    # et controller qui pose le cookie httpOnly.
+    App\Shared\Mercure\MercureSubscriberTokenService:
+        arguments:
+            $mercureJwtSecret: '%env(MERCURE_JWT_SECRET)%'
+
+    App\Controller\Api\MercureTokenController:
+        arguments:
+            $cookieSecure: '%mercure.cookie.secure%'
+            $cookieDomain: '%mercure.cookie.domain%'
+        tags: ['controller.service_arguments']
+
+when@prod:
+    parameters:
+        # HSTS activé en prod : la prod sert exclusivement en
+        # HTTPS, on peut donc forcer le navigateur à mémoriser
+        # HTTPS pour 1 an sur stayos.sn et tous ses sous-domaines.
+        security.headers.hsts_enabled: true
+
+        # Sprint 14-B.2.1 — Cookie Mercure en prod : HTTPS only,
+        # domain `.getstayos.com` pour cross-subdomain (api +
+        # mercure hub partagent ce parent domain).
+        mercure.cookie.secure: true
+        mercure.cookie.domain: '.getstayos.com'

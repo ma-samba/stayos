@@ -8,7 +8,6 @@ use App\Hotel\Property\Domain\Entity\HotelProfile;
 use App\Hotel\Rate\Application\DTO\PromotionDTO;
 use App\Hotel\Rate\Domain\Entity\Promotion;
 use App\Hotel\Rate\Infrastructure\Repository\PromotionRepository;
-use App\Hotel\Shared\Domain\Service\FeatureChecker;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -22,7 +21,6 @@ class PromotionController extends AbstractApiController
 {
     public function __construct(
         private readonly PromotionRepository    $promotionRepository,
-        private readonly FeatureChecker         $featureChecker,
         private readonly ValidatorInterface     $validator,
         private readonly EntityManagerInterface $entityManager,
     ) {}
@@ -42,10 +40,9 @@ class PromotionController extends AbstractApiController
     }
 
     #[Route('', name: 'create', methods: ['POST'])]
+    #[IsGranted('FEATURE_revenue_management')]
     public function create(Request $request): JsonResponse
     {
-        $this->featureChecker->assertEnabled('revenue_management');
-
         $data = json_decode($request->getContent(), true) ?? [];
         $dto = $this->hydrateDto(new PromotionDTO(), $data);
 
@@ -94,10 +91,9 @@ class PromotionController extends AbstractApiController
     }
 
     #[Route('/{id}', name: 'update', methods: ['PUT'])]
+    #[IsGranted('FEATURE_revenue_management')]
     public function update(Promotion $promo, Request $request): JsonResponse
     {
-        $this->featureChecker->assertEnabled('revenue_management');
-
         $data = json_decode($request->getContent(), true) ?? [];
         $dto = $this->hydrateDto(new PromotionDTO(), $data);
 
@@ -140,10 +136,9 @@ class PromotionController extends AbstractApiController
     }
 
     #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
+    #[IsGranted('FEATURE_revenue_management')]
     public function delete(Promotion $promo): JsonResponse
     {
-        $this->featureChecker->assertEnabled('revenue_management');
-
         $promo->setIsActive(false);
         $this->entityManager->flush();
 

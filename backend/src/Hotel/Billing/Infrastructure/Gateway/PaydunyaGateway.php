@@ -99,6 +99,7 @@ class PaydunyaGateway implements PaymentGatewayInterface
         } catch (\Throwable $e) {
             $this->logger->error('Paydunya checkout HTTP error', [
                 'error' => $e->getMessage(),
+                'class' => $e::class,
             ]);
 
             return new PaymentCheckoutResult(ok: false);
@@ -147,6 +148,7 @@ class PaydunyaGateway implements PaymentGatewayInterface
             $this->logger->error('Paydunya confirm HTTP error', [
                 'token' => $gatewayToken,
                 'error' => $e->getMessage(),
+                'class' => $e::class,
             ]);
 
             return new PaymentConfirmation(ok: false);

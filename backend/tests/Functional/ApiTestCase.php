@@ -15,10 +15,30 @@ abstract class ApiTestCase extends WebTestCase
 {
     protected KernelBrowser $client;
 
+    /**
+     * JWT capturé par loginAsManager()/login(), auto-injecté
+     * dans les apiRequest() suivants si aucun header Authorization
+     * n'est explicitement fourni. Permet d'enchaîner plusieurs
+     * requêtes authentifiées sans re-passer le token (utile pour
+     * les tests qui hammer un endpoint, ex : rate limiting).
+     */
+    protected ?string $authToken = null;
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->client = static::createClient();
+        $this->authToken = null;
+
+        // Sprint 14-B.1.2.1 — Reset le pool rate_limiter entre
+        // tests. Le pool est filesystem en env test (configuré
+        // pour que login_throttling persiste entre requêtes
+        // d'un même test) — sans ce clear, les compteurs des
+        // tests précédents accumulent et n'importe quel test
+        // qui enchaîne >60 POST sur /api/* déclenche un 429
+        // parasite. Login_throttling et tous nos limiters
+        // partagent ce pool → un seul clear() suffit.
+        static::getContainer()->get('cache.rate_limiter')->clear();
     }
 
     /**
@@ -39,6 +59,12 @@ abstract class ApiTestCase extends WebTestCase
             'HTTP_HOST'    => $host,
             'CONTENT_TYPE' => 'application/json',
         ];
+
+        // Auto-injection du JWT capturé par loginAsManager() si
+        // l'appelant n'a pas déjà passé un header Authorization.
+        if ($this->authToken !== null && !isset($headers['Authorization'])) {
+            $headers['Authorization'] = 'Bearer ' . $this->authToken;
+        }
 
         foreach ($headers as $key => $value) {
             $server['HTTP_' . strtoupper(str_replace('-', '_', $key))] = $value;
@@ -98,5 +124,27 @@ abstract class ApiTestCase extends WebTestCase
         );
 
         return $response['token'] ?? '';
+    }
+
+    /**
+     * Helper : login en MANAGER sur l'hôtel Savana (fixtures) et
+     * stocke le JWT dans $this->authToken pour que les apiRequest
+     * suivants soient authentifiés automatiquement.
+     *
+     * Retourne le token, utile pour les tests qui veulent le
+     * combiner manuellement (overrides, hosts différents, etc.).
+     */
+    protected function loginAsManager(
+        string $host = 'savana.localhost',
+    ): string {
+        $token = $this->login(
+            'admin@savana-hotel.sn',
+            'admin123',
+            $host,
+        );
+
+        $this->authToken = $token;
+
+        return $token;
     }
 }

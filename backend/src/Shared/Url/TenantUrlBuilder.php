@@ -12,9 +12,6 @@ namespace App\Shared\Url;
  *
  * Centralisé dans `Shared/Url` car utilisé par `SaasInvoiceService`
  * (Sprint 12) et `EmailService::sendStaffInvitation` (Sprint 13bis).
- * `SaasInvoiceService::buildTenantUrl` est conservé pour l'instant
- * (dupliqué) ; à factoriser au Sprint 14 quand on touchera au
- * checkout Paydunya.
  */
 final class TenantUrlBuilder
 {

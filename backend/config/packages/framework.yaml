@@ -31,3 +31,33 @@ when@test:
         test: true
         session:
             storage_factory_id: session.storage.factory.mock_file
+
+when@prod:
+    framework:
+        # Sprint 14-B.1.2.1 — Heroku place un proxy (Heroku Router)
+        # entre l'app et le client (avec Cloudflare en amont). Sans
+        # cette config, Symfony refuse de lire X-Forwarded-For et
+        # Request::getClientIp() retourne l'IP du proxy au lieu de
+        # l'IP du client réel.
+        #
+        # Conséquences si désactivé :
+        # - le rate limiter verrait l'IP interne Heroku (10.x.x.x)
+        #   pour TOUS les clients → bloquerait tout le monde après
+        #   60 req/min
+        # - audit logs et Sentry verraient la mauvaise IP source
+        #
+        # `REMOTE_ADDR` est un mot-clé Symfony qui signifie "faire
+        # confiance à la dernière IP connectée" (= le routeur
+        # Heroku qui présente la requête à notre dyno). C'est la
+        # config recommandée par Heroku pour Symfony 6+.
+        #
+        # NE PAS activer en dev/test : en local on se connecte
+        # directement à Symfony sans proxy, et lire X-Forwarded-*
+        # de requêtes locales ouvrirait une faille de spoofing.
+        trusted_proxies: '127.0.0.1,REMOTE_ADDR'
+        trusted_headers:
+            - 'x-forwarded-for'
+            - 'x-forwarded-host'
+            - 'x-forwarded-proto'
+            - 'x-forwarded-port'
+            - 'x-forwarded-prefix'

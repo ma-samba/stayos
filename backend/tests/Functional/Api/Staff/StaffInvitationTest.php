@@ -21,7 +21,6 @@ use Doctrine\ORM\EntityManagerInterface;
  * limite plan. setUp + tearDown nettoient invitations + staff
  * créés pour ne pas polluer les fixtures.
  *
- * @group integration
  */
 class StaffInvitationTest extends ApiTestCase
 {
@@ -63,7 +62,7 @@ class StaffInvitationTest extends ApiTestCase
         try {
             $this->conn->executeStatement(
                 "DELETE FROM audit_logs
-                 WHERE entity_type IN ('staff_user','staff_invitation')"
+                 WHERE entity_type IN ('StaffUser','StaffInvitation','staff_user','staff_invitation')"
             );
             $this->conn->executeStatement(
                 "DELETE FROM staff_invitations WHERE email LIKE 'test-%@example.sn'"
@@ -423,7 +422,7 @@ class StaffInvitationTest extends ApiTestCase
         );
         $invitationId = $response['data']['id'];
 
-        $logs = $this->fetchAuditLogs('staff_invitation', $invitationId);
+        $logs = $this->fetchAuditLogs('StaffInvitation', $invitationId);
         self::assertCount(1, $logs);
         self::assertSame('staff_invitation.created', $logs[0]['action']);
         self::assertSame(self::MANAGER, $logs[0]['staffUserEmail']);
@@ -461,7 +460,7 @@ class StaffInvitationTest extends ApiTestCase
             return (string) $staff->getId();
         });
 
-        $logs = $this->fetchAuditLogs('staff_user', $newId);
+        $logs = $this->fetchAuditLogs('StaffUser', $newId);
         self::assertCount(1, $logs);
         self::assertSame('staff_user.created_via_invitation', $logs[0]['action']);
         // ⚠️ Pas d'acteur loggué : l'invité n'avait pas encore de session
@@ -495,7 +494,7 @@ class StaffInvitationTest extends ApiTestCase
         );
         self::assertResponseStatusCodeSame(200);
 
-        $logs = $this->fetchAuditLogs('staff_invitation', $invitationId);
+        $logs = $this->fetchAuditLogs('StaffInvitation', $invitationId);
         // [0] = revoke, [1] = create
         self::assertSame('staff_invitation.revoked', $logs[0]['action']);
         self::assertSame(self::MANAGER, $logs[0]['staffUserEmail']);

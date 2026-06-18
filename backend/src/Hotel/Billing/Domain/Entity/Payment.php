@@ -63,6 +63,7 @@ class Payment
     private ?string $callbackSecret = null;
 
     #[ORM\Column(type: 'text', nullable: true)]
+    #[Groups(['payment:read', 'invoice:detail'])]
     private ?string $notes = null;
 
     public function __construct()

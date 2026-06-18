@@ -2,6 +2,8 @@
 
 namespace App\Platform\Tenant\Domain\Entity;
 
+use App\Hotel\Reservation\Domain\Enum\CancellationPolicy;
+use App\Hotel\Reservation\Domain\Enum\NoShowPolicy;
 use App\Platform\Tenant\Domain\Enum\TenantStatus;
 use App\Platform\Tenant\Infrastructure\Doctrine\TenantRepository;
 use Doctrine\ORM\Mapping as ORM;
@@ -180,6 +182,50 @@ class Tenant
         }
         $settings = $this->settings ?? [];
         $settings['business_day_cutoff_hour'] = $hour;
+        $this->settings = $settings;
+
+        return $this;
+    }
+
+    /**
+     * Politique de facturation no-show appliquée par défaut.
+     * Stockée dans settings['no_show_policy'], défaut FIRST_NIGHT.
+     */
+    public function getNoShowPolicy(): NoShowPolicy
+    {
+        $value = $this->settings['no_show_policy'] ?? null;
+
+        return $value !== null
+            ? NoShowPolicy::from($value)
+            : NoShowPolicy::FIRST_NIGHT;
+    }
+
+    public function setNoShowPolicy(NoShowPolicy $policy): self
+    {
+        $settings = $this->settings ?? [];
+        $settings['no_show_policy'] = $policy->value;
+        $this->settings = $settings;
+
+        return $this;
+    }
+
+    /**
+     * Politique d'annulation appliquée par défaut.
+     * Stockée dans settings['cancellation_policy'], défaut FLEXIBLE.
+     */
+    public function getCancellationPolicy(): CancellationPolicy
+    {
+        $value = $this->settings['cancellation_policy'] ?? null;
+
+        return $value !== null
+            ? CancellationPolicy::from($value)
+            : CancellationPolicy::FLEXIBLE;
+    }
+
+    public function setCancellationPolicy(CancellationPolicy $policy): self
+    {
+        $settings = $this->settings ?? [];
+        $settings['cancellation_policy'] = $policy->value;
         $this->settings = $settings;
 
         return $this;

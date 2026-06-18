@@ -18,7 +18,6 @@ use Doctrine\ORM\EntityManagerInterface;
  *
  * Nécessite les fixtures.
  *
- * @group integration
  */
 class SubscriptionControllerTest extends ApiTestCase
 {

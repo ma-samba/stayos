@@ -6,7 +6,6 @@ namespace App\Controller\Api;
 
 use App\Hotel\Analytics\Domain\Service\KpiService;
 use App\Hotel\Analytics\Domain\Service\ReportExporter;
-use App\Hotel\Shared\Domain\Service\FeatureChecker;
 use App\Shared\Exception\BusinessRuleException;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -19,7 +18,6 @@ class DashboardController extends AbstractApiController
 {
     public function __construct(
         private readonly KpiService       $kpiService,
-        private readonly FeatureChecker   $featureChecker,
         private readonly ReportExporter   $reportExporter,
     ) {}
 
@@ -40,10 +38,9 @@ class DashboardController extends AbstractApiController
      */
     #[Route('/report', name: 'report', methods: ['GET'])]
     #[IsGranted('ROLE_ACCESS_REPORTS')]
+    #[IsGranted('FEATURE_advanced_reports')]
     public function report(Request $request): JsonResponse
     {
-        $this->featureChecker->assertEnabled('advanced_reports');
-
         [$from, $to] = $this->parseDateRange($request);
 
         $report = $this->kpiService->periodReport($from, $to);
@@ -56,10 +53,9 @@ class DashboardController extends AbstractApiController
      */
     #[Route('/report/export', name: 'export', methods: ['GET'])]
     #[IsGranted('ROLE_ACCESS_REPORTS')]
+    #[IsGranted('FEATURE_advanced_reports')]
     public function export(Request $request): Response
     {
-        $this->featureChecker->assertEnabled('advanced_reports');
-
         [$from, $to] = $this->parseDateRange($request);
 
         $report = $this->kpiService->periodReport($from, $to);

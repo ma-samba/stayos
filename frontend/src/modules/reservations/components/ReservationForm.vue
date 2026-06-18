@@ -307,8 +307,7 @@ onMounted(async () => {
     @click.self="emit('close')"
   >
     <div style="background:#fff; border-radius:var(--radius-xl); padding:1.5rem; width:560px; max-width:90vw; max-height:90vh; overflow-y:auto;">
-
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
         <h3 style="font-size:18px; font-weight:500; color:var(--pms-ink);">
           {{ isEditMode ? 'Modifier la réservation' : 'Nouvelle réservation' }}
         </h3>
@@ -394,13 +393,17 @@ onMounted(async () => {
           <div v-if="guestId" style="margin-top:4px; display:flex; align-items:center; gap:4px; font-size:12px; color:var(--pms-green);">
             <i class="ti ti-circle-check"></i> Client sélectionné
           </div>
-          <div v-else-if="guestQuery.length >= 2 && guests.length === 0"
-               style="margin-top:4px; font-size:12px; color:var(--pms-ink-3);">
+          <div
+v-else-if="guestQuery.length >= 2 && guests.length === 0"
+               style="margin-top:4px; font-size:12px; color:var(--pms-ink-3);"
+>
             Aucun client trouvé.
             <button
               style="background:none; border:none; color:var(--pms-teal); cursor:pointer; font-size:12px; text-decoration:underline; padding:0;"
               @click="openNewGuestForm()"
-            >Créer un nouveau client</button>
+            >
+Créer un nouveau client
+</button>
           </div>
           <!-- Dropdown résultats -->
           <div
@@ -550,7 +553,6 @@ onMounted(async () => {
           </template>
         </button>
       </div>
-
-    </div>
+</div>
   </div>
 </template>

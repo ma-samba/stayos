@@ -196,14 +196,22 @@
     </div>
 
     {# ── Factures ── #}
+    {# La TVA est calculée en bcmath côté backend (Sprint 14-A.3 B.2)
+       comme somme exacte des taxXof des factures issued. Les snapshots
+       antérieurs n'ont pas le champ vatXof — fallback float pour
+       rétrocompatibilité (signalé par « ≈ »). #}
     {% set totalTtc = invoices.totalXof|default('0.00') %}
-    {% set vatAmount = totalTtc > 0 ? (totalTtc / 1.18 * 0.18) : 0 %}
+    {% set vatXof   = invoices.vatXof|default(null) %}
     <div class="section">
         <div class="section-title">Factures émises</div>
         <table class="kv">
             <tr><td class="label">Nombre de factures émises</td><td class="value">{{ invoices.issued|default(0) }}</td></tr>
             <tr><td class="label">Total TTC</td><td class="value">{{ totalTtc }} XOF</td></tr>
-            <tr><td class="label">Dont TVA (18%) ≈</td><td class="value">{{ vatAmount|number_format(2, '.', '') }} XOF</td></tr>
+            {% if vatXof is not null %}
+                <tr><td class="label">Dont TVA</td><td class="value">{{ vatXof }} XOF</td></tr>
+            {% elseif totalTtc > 0 %}
+                <tr><td class="label">Dont TVA (18%) ≈</td><td class="value">{{ (totalTtc / 1.18 * 0.18)|number_format(2, '.', '') }} XOF</td></tr>
+            {% endif %}
         </table>
     </div>
 

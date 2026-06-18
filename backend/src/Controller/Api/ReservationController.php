@@ -5,8 +5,12 @@ namespace App\Controller\Api;
 use App\Hotel\Reservation\Application\DTO\CheckInDTO;
 use App\Hotel\Reservation\Application\DTO\CreateReservationDTO;
 use App\Hotel\Reservation\Application\DTO\UpdateReservationDTO;
+use App\Hotel\Reservation\Domain\Enum\NoShowPolicy;
 use App\Hotel\Reservation\Domain\Service\ReservationEngine;
+use App\Hotel\Reservation\Domain\Service\ReservationFeeCalculator;
 use App\Hotel\Reservation\Infrastructure\Repository\ReservationRepository;
+use App\Shared\Exception\BusinessRuleException;
+use App\Shared\TenantContext;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -18,9 +22,11 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 class ReservationController extends AbstractApiController
 {
     public function __construct(
-        private readonly ReservationRepository $reservationRepository,
-        private readonly ReservationEngine     $reservationEngine,
-        private readonly ValidatorInterface    $validator,
+        private readonly ReservationRepository    $reservationRepository,
+        private readonly ReservationEngine        $reservationEngine,
+        private readonly ValidatorInterface       $validator,
+        private readonly ReservationFeeCalculator $feeCalculator,
+        private readonly TenantContext            $tenantContext,
     ) {}
 
     /**
@@ -207,6 +213,9 @@ class ReservationController extends AbstractApiController
 
     /**
      * POST /api/reservations/{id}/cancel — Annuler une réservation.
+     * Body : { reason: string (min 5), feeOverrideXof?: string }.
+     * Le `feeOverrideXof` est traité comme geste commercial : si fourni,
+     * il remplace le calcul auto basé sur la politique tenant.
      */
     #[Route('/{id}/cancel', name: 'cancel', methods: ['POST'])]
     public function cancel(string $id, Request $request): JsonResponse
@@ -217,11 +226,116 @@ class ReservationController extends AbstractApiController
             return $this->jsonError('Réservation introuvable', 'NOT_FOUND', 404);
         }
 
-        $data = json_decode($request->getContent(), true) ?? [];
-        $reason = $data['reason'] ?? 'Annulation sans motif';
+        $data   = json_decode($request->getContent() ?: '[]', true);
+        if (!is_array($data)) {
+            throw new BusinessRuleException('Payload JSON invalide.');
+        }
 
-        $reservation = $this->reservationEngine->cancel($reservation, $reason, $this->getStaffUser());
+        $reason = trim((string) ($data['reason'] ?? ''));
+        if (mb_strlen($reason) < 5) {
+            $reason = 'Annulation sans motif détaillé.';
+        }
 
-        return $this->jsonSuccess($reservation, ['reservation:read']);
+        $feeOverrideXof = null;
+        if (array_key_exists('feeOverrideXof', $data) && $data['feeOverrideXof'] !== null) {
+            $feeOverrideXof = (string) $data['feeOverrideXof'];
+            if (!is_numeric($feeOverrideXof) || bccomp($feeOverrideXof, '0', 2) < 0) {
+                throw new BusinessRuleException(
+                    'feeOverrideXof doit être un nombre positif ou zéro.'
+                );
+            }
+        }
+
+        $result = $this->reservationEngine->cancel(
+            $reservation,
+            $reason,
+            $this->getStaffUser(),
+            $feeOverrideXof,
+        );
+
+        return $this->jsonSuccess(
+            [
+                'reservation' => $result['reservation'],
+                'invoice'     => $result['invoice'],
+                'feeXof'      => $result['feeXof'],
+                'feeQuote'    => $result['feeQuote'],
+            ],
+            ['reservation:read', 'invoice:read'],
+        );
+    }
+
+    /**
+     * GET /api/reservations/{id}/cancellation-quote — Estime les frais
+     * d'annulation selon la politique tenant et le délai courant SANS
+     * modifier l'état de la réservation. Utilisé par la modal d'annulation.
+     */
+    #[Route('/{id}/cancellation-quote', name: 'cancellation_quote', methods: ['GET'])]
+    public function cancellationQuote(string $id): JsonResponse
+    {
+        $reservation = $this->reservationRepository->findByIdWithRelations($id);
+
+        if ($reservation === null) {
+            return $this->jsonError('Réservation introuvable', 'NOT_FOUND', 404);
+        }
+
+        $tenant = $this->tenantContext->get();
+        $policy = $tenant->getCancellationPolicy();
+        $now    = new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar'));
+
+        $quote = $this->feeCalculator->computeCancellationFee($reservation, $policy, $now);
+
+        return $this->jsonSuccess([
+            'policy'      => $policy->value,
+            'amountXof'   => $quote['amountXof'],
+            'reason'      => $quote['reason'],
+            'hoursBefore' => $quote['hoursBefore'],
+        ]);
+    }
+
+    /**
+     * POST /api/reservations/{id}/no-show — Marquer la résa no-show.
+     * Body (optionnel) : { policy: 'none' | 'first_night' | 'full' }
+     * pour surcharger la politique tenant.
+     */
+    #[Route('/{id}/no-show', name: 'no_show', methods: ['POST'])]
+    public function noShow(string $id, Request $request): JsonResponse
+    {
+        $reservation = $this->reservationRepository->findByIdWithRelations($id);
+
+        if ($reservation === null) {
+            return $this->jsonError('Réservation introuvable', 'NOT_FOUND', 404);
+        }
+
+        $data = json_decode($request->getContent() ?: '[]', true);
+        if (!is_array($data)) {
+            throw new BusinessRuleException('Payload JSON invalide.');
+        }
+
+        $policyOverride = null;
+        if (array_key_exists('policy', $data) && $data['policy'] !== null && $data['policy'] !== '') {
+            $policyOverride = NoShowPolicy::tryFrom((string) $data['policy']);
+            if ($policyOverride === null) {
+                throw new BusinessRuleException(sprintf(
+                    'Politique no-show inconnue : %s',
+                    $data['policy'],
+                ));
+            }
+        }
+
+        $result = $this->reservationEngine->markNoShow(
+            $reservation,
+            $this->getStaffUser(),
+            $policyOverride,
+        );
+
+        return $this->jsonSuccess(
+            [
+                'reservation' => $result['reservation'],
+                'invoice'     => $result['invoice'],
+                'policy'      => $result['policy'],
+                'feeXof'      => $result['feeXof'],
+            ],
+            ['reservation:read', 'invoice:read'],
+        );
     }
 }

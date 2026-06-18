@@ -20,7 +20,6 @@ class PromotionControllerTest extends ApiTestCase
     // ── Tests avec fixtures ──
 
     /**
-     * @group integration
      */
     public function testManagerCreatesPromotion(): void
     {
@@ -45,7 +44,6 @@ class PromotionControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testDuplicateActiveCodeRejected(): void
     {
@@ -77,7 +75,6 @@ class PromotionControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testDeleteIsSoftDelete(): void
     {
@@ -117,7 +114,6 @@ class PromotionControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testHousekeeperForbidden(): void
     {
@@ -144,7 +140,6 @@ class PromotionControllerTest extends ApiTestCase
     // ── Validation — body incomplet ──
 
     /**
-     * @group integration
      */
     public function testCreatePromotionWithMissingFieldsReturns422(): void
     {

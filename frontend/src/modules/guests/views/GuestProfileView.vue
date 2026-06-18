@@ -181,8 +181,7 @@ onMounted(load)
     </div>
 
     <div v-else-if="guest">
-
-      <!-- En-tete -->
+<!-- En-tete -->
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1.5rem;">
         <div style="display:flex; align-items:center; gap:12px;">
           <div class="avatar avatar-lg avatar-teal">
@@ -355,8 +354,7 @@ onMounted(load)
           </table>
         </div>
       </div>
-
-    </div>
+</div>
   </div>
 </template>
 

@@ -424,7 +424,7 @@ async function refresh(): Promise<void> {
             </template>
           </template>
 
-          <hr class="staff-sep" v-if="!isSelf()" />
+          <hr v-if="!isSelf()" class="staff-sep" />
 
           <!-- Désactiver / Réactiver -->
           <template v-if="member.active && !isSelf()">

@@ -1,0 +1,47 @@
+sentry:
+    # DSN provient de l'env, vide par défaut (dev/test ne
+    # poussent pas vers Sentry — le client est désactivé).
+    dsn: '%env(SENTRY_DSN)%'
+
+    options:
+        # Sample rate : 100% des erreurs en prod (volume faible
+        # attendu en V1). Si volume explose, ajuster.
+        sample_rate: 1.0
+
+        # Environnement pour grouper les erreurs dans Sentry
+        # (dev / test / prod / staging).
+        environment: '%kernel.environment%'
+
+        # Ignorer les exceptions HTTP "normales" qui ne
+        # méritent pas Sentry (404 attendus, RBAC refusé,
+        # validations métier, etc.).
+        ignore_exceptions:
+            - 'Symfony\Component\HttpKernel\Exception\NotFoundHttpException'
+            - 'Symfony\Component\Security\Core\Exception\AuthenticationException'
+            - 'Symfony\Component\Security\Core\Exception\AccessDeniedException'
+            - 'Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException'
+            - 'Symfony\Component\Validator\Exception\ValidationFailedException'
+            - 'App\Shared\Exception\BusinessRuleException'
+            - 'App\Shared\Exception\AlreadyExistsException'
+            - 'App\Shared\Exception\ConflictException'
+            - 'App\Shared\Exception\FeatureNotAvailableException'
+            - 'App\Shared\Exception\OtpInvalidException'
+            - 'App\Shared\Exception\TenantNotFoundException'
+            - 'App\Shared\Exception\TenantSuspendedException'
+
+        # Scrubber des données sensibles avant envoi vers
+        # Sentry (passwords, tokens JWT, secrets Paydunya, OTP,
+        # etc.). Voir App\Shared\Sentry\SensitiveDataScrubber.
+        before_send: 'App\Shared\Sentry\SensitiveDataScrubber'
+
+when@dev:
+    sentry:
+        # Pas d'envoi vers Sentry en dev — le profiler local
+        # donne déjà la stack complète.
+        dsn: null
+
+when@test:
+    sentry:
+        # Pas d'envoi vers Sentry en test — éviterait de
+        # polluer le dashboard à chaque run CI.
+        dsn: null

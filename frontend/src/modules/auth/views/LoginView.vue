@@ -47,8 +47,7 @@ async function submit(): Promise<void> {
 <template>
   <div class="login-page">
     <div class="login-card">
-
-      <!-- Logo -->
+<!-- Logo -->
       <div class="login-logo">
         <i class="ti ti-building" aria-hidden="true"></i>
         <span>StayOS</span>
@@ -104,8 +103,7 @@ async function submit(): Promise<void> {
           <span v-else>Se connecter</span>
         </button>
       </form>
-
-    </div>
+</div>
   </div>
 </template>
 

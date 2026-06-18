@@ -14,7 +14,6 @@ use Doctrine\ORM\EntityManagerInterface;
  * Vérifie que le `AuthenticationSuccessListener` met à jour
  * `lastLoginAt` après un login JWT réussi (Sprint 13bis correctif).
  *
- * @group integration
  */
 class LoginUpdatesLastLoginAtTest extends ApiTestCase
 {

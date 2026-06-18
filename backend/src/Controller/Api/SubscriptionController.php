@@ -12,6 +12,7 @@ use App\Shared\Exception\BusinessRuleException;
 use App\Shared\TenantContext;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -38,6 +39,7 @@ class SubscriptionController extends AbstractApiController
         private readonly EntityManagerInterface  $entityManager,
         private readonly TenantContext           $tenantContext,
         private readonly Connection              $connection,
+        private readonly LoggerInterface         $logger,
     ) {}
 
     #[Route('', name: 'current', methods: ['GET'])]
@@ -191,8 +193,12 @@ class SubscriptionController extends AbstractApiController
                 'SELECT COUNT(*) FROM rooms WHERE is_active = TRUE'
             );
             $usage['rooms'] = $rooms;
-        } catch (\Throwable) {
-            // Schema vide ou table absente → on laisse 0 silencieusement
+        } catch (\Throwable $e) {
+            $this->logger->warning('Subscription usage: rooms count failed, defaulting to 0', [
+                'error' => $e->getMessage(),
+                'class' => $e::class,
+                'tenant' => $this->tenantContext->has() ? $this->tenantContext->get()->getSlug() : null,
+            ]);
         }
 
         try {
@@ -200,7 +206,12 @@ class SubscriptionController extends AbstractApiController
                 'SELECT COUNT(*) FROM staff_users WHERE active = TRUE'
             );
             $usage['users'] = $users;
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $this->logger->warning('Subscription usage: staff_users count failed, defaulting to 0', [
+                'error' => $e->getMessage(),
+                'class' => $e::class,
+                'tenant' => $this->tenantContext->has() ? $this->tenantContext->get()->getSlug() : null,
+            ]);
         }
 
         return $usage;

@@ -78,8 +78,7 @@ onMounted(fetchInvoices)
 
 <template>
   <div style="padding:1.5rem; max-width:1400px; margin:0 auto;">
-
-    <!-- Retour -->
+<!-- Retour -->
     <button class="btn btn-ghost btn-sm" style="margin-bottom:0.75rem;" @click="backToSubscription()">
       <i class="ti ti-arrow-left" aria-hidden="true"></i>
       Mon abonnement
@@ -183,8 +182,7 @@ onMounted(fetchInvoices)
         </tbody>
       </table>
     </div>
-
-  </div>
+</div>
 </template>
 
 <style scoped>

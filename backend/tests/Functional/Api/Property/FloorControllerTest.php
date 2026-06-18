@@ -13,7 +13,6 @@ use Doctrine\ORM\EntityManagerInterface;
 /**
  * Sprint 13ter — Tests CRUD des étages côté manager.
  *
- * @group integration
  */
 class FloorControllerTest extends ApiTestCase
 {

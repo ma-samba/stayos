@@ -158,8 +158,7 @@ onMounted(fetchAll)
 
 <template>
   <div style="padding:2rem;">
-
-    <!-- Header -->
+<!-- Header -->
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
       <h1 style="font-size:22px; font-weight:500; color:var(--pms-ink);">Tarifs</h1>
     </div>

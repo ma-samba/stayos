@@ -91,7 +91,7 @@ async function submit(): Promise<void> {
       <div class="modal-body">
         <div class="input-wrap">
           <label class="input-label">Étage</label>
-          <select class="input" v-model="floorId">
+          <select v-model="floorId" class="input">
             <option v-for="f in floors" :key="f.id" :value="f.id">
               {{ f.number }} — {{ f.name || 'Étage ' + f.number }}
             </option>
@@ -99,7 +99,7 @@ async function submit(): Promise<void> {
         </div>
         <div class="input-wrap">
           <label class="input-label">Type de chambre</label>
-          <select class="input" v-model="typeId">
+          <select v-model="typeId" class="input">
             <option v-for="t in types" :key="t.id" :value="t.id">{{ t.name }}</option>
           </select>
         </div>
@@ -107,15 +107,15 @@ async function submit(): Promise<void> {
         <div style="display:flex; gap:12px;">
           <div class="input-wrap" style="flex:1;">
             <label class="input-label">Numéro de départ</label>
-            <input class="input" type="number" v-model.number="startNumber" />
+            <input v-model.number="startNumber" class="input" type="number" />
           </div>
           <div class="input-wrap" style="flex:1;">
             <label class="input-label">Nombre (max 50)</label>
-            <input class="input" type="number" min="1" max="50" v-model.number="count" />
+            <input v-model.number="count" class="input" type="number" min="1" max="50" />
           </div>
           <div class="input-wrap" style="width:120px;">
             <label class="input-label">Préfixe</label>
-            <input class="input" v-model="prefix" placeholder="B" maxlength="10" />
+            <input v-model="prefix" class="input" placeholder="B" maxlength="10" />
           </div>
         </div>
 

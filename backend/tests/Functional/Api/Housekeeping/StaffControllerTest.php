@@ -37,7 +37,6 @@ class StaffControllerTest extends ApiTestCase
     // ──────────────────────────────────────────────────────────────
 
     /**
-     * @group integration
      */
     public function testManagerCanListHousekeepers(): void
     {
@@ -65,7 +64,6 @@ class StaffControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testReceptionistCanListHousekeepers(): void
     {
@@ -83,7 +81,6 @@ class StaffControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testHousekeeperIsDeniedAccess(): void
     {
@@ -100,7 +97,6 @@ class StaffControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testListWithoutRoleFilterReturnsAllStaff(): void
     {
@@ -123,7 +119,6 @@ class StaffControllerTest extends ApiTestCase
      * Isolation tenant : Villa Collines n'a aucun housekeeper en fixtures,
      * un manager Villa ne doit donc PAS voir les housekeepers Savana.
      *
-     * @group integration
      */
     public function testTenantIsolation(): void
     {

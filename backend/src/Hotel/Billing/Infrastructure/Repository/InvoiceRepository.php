@@ -68,10 +68,10 @@ class InvoiceRepository extends ServiceEntityRepository
     }
 
     /**
-     * Comptage et somme TTC des factures émises (issuedAt) pour un jour donné.
-     * Ignore drafts et annulées.
+     * Comptage, somme TTC et somme TVA des factures émises (issuedAt)
+     * pour un jour donné. Ignore drafts et annulées.
      *
-     * @return array{count: int, total: string}
+     * @return array{count: int, total: string, vat: string}
      */
     public function countAndSumIssuedForDate(\DateTimeImmutable $date): array
     {
@@ -79,7 +79,11 @@ class InvoiceRepository extends ServiceEntityRepository
         $end   = $start->modify('+1 day');
 
         $row = $this->createQueryBuilder('i')
-            ->select('COUNT(i.id) AS cnt, COALESCE(SUM(i.totalXof), 0) AS total')
+            ->select(
+                'COUNT(i.id) AS cnt',
+                'COALESCE(SUM(i.totalXof), 0) AS total',
+                'COALESCE(SUM(i.taxXof), 0) AS vat',
+            )
             ->where('i.issuedAt IS NOT NULL')
             ->andWhere('i.issuedAt >= :start')
             ->andWhere('i.issuedAt < :end')
@@ -93,6 +97,7 @@ class InvoiceRepository extends ServiceEntityRepository
         return [
             'count' => (int) ($row['cnt'] ?? 0),
             'total' => number_format((float) ($row['total'] ?? 0), 2, '.', ''),
+            'vat'   => number_format((float) ($row['vat']   ?? 0), 2, '.', ''),
         ];
     }
 }

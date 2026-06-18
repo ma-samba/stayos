@@ -5,3 +5,12 @@ framework:
         # rate limiter entre tests (sinon les compteurs filesystem persistent
         # d'un test à l'autre dans le même run, et entre runs).
         app: cache.adapter.array
+        pools:
+            # Sprint 14-A.3 C.1 : pool dédié au rate-limiter de login.
+            # On utilise un filesystem adapter pour que les compteurs
+            # survivent au reboot du kernel entre 2 requêtes d'un même
+            # test (testLoginRateLimitAfterFiveAttempts en a besoin).
+            # L'isolation entre tests est faite via APP_CACHE_POOL_CLEAR
+            # côté KernelTestCase (cache:pool:clear en setUp si besoin).
+            cache.rate_limiter:
+                adapter: cache.adapter.filesystem

@@ -233,5 +233,15 @@ class StaffUser implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->getRoles();
     }
 
+    /**
+     * @deprecated Sera retirée à la migration Symfony 8. La méthode est
+     * dépréciée dans UserInterface depuis Symfony 7.3 — les credentials
+     * étant déjà hashés en BDD, il n'y a rien à effacer en mémoire.
+     * Conservée pour compatibilité Symfony 7.x.
+     */
+    #[\Deprecated(
+        message: 'UserInterface::eraseCredentials est dépréciée Symfony 7.3+, sera retirée en 8.0',
+        since: '7.3',
+    )]
     public function eraseCredentials(): void {}
 }

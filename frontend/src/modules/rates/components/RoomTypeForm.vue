@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import type { RoomType } from '@/types/entities'
-import { roomService } from '@/services/room.service'
+import { roomTypeService } from '@/services/room.service'
 
 const emit = defineEmits<{
   close: []
@@ -41,7 +41,7 @@ async function submit(): Promise<void> {
   formError.value  = null
 
   try {
-    await roomService.updateType(props.roomType.id, {
+    await roomTypeService.update(props.roomType.id, {
       name:         name.value.trim(),
       baseRateXof:  baseRateXof.value,
       maxOccupancy: maxOccupancy.value,
@@ -67,8 +67,7 @@ async function submit(): Promise<void> {
     @click.self="emit('close')"
   >
     <div style="background:#fff; border-radius:var(--radius-xl); padding:1.5rem; width:480px; max-width:90vw;">
-
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
         <h3 style="font-size:18px; font-weight:500; color:var(--pms-ink);">
           Modifier le type de chambre
         </h3>
@@ -112,7 +111,6 @@ async function submit(): Promise<void> {
           </template>
         </button>
       </div>
-
-    </div>
+</div>
   </div>
 </template>

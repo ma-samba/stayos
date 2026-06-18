@@ -52,8 +52,8 @@ export interface PlatformMetrics {
   activeTenantsCount: number
   trialTenantsCount: number
   suspendedTenantsCount: number
-  // Tenants en statut CHURNED côté backend, libellés « désabonnés » dans l'UI.
-  cancelledTenantsCount: number
+  // Tenants en statut CHURNED côté backend, libellés « résiliés » dans l'UI.
+  churnedTenantsCount: number
   newTenantsLast30Days: number
   churnLast30Days: number
   planDistribution: {

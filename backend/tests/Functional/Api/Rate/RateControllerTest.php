@@ -42,7 +42,6 @@ class RateControllerTest extends ApiTestCase
     // ── Tests avec fixtures ──
 
     /**
-     * @group integration
      */
     public function testManagerCanListPlans(): void
     {
@@ -58,7 +57,6 @@ class RateControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testManagerCanCreatePlan(): void
     {
@@ -80,7 +78,6 @@ class RateControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testCreateSeasonalRateInvalidDatesRejected(): void
     {
@@ -103,7 +100,6 @@ class RateControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testQuoteReturnsPrice(): void
     {
@@ -134,7 +130,6 @@ class RateControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testQuoteWithPromoCodeDoesNotConsumePromo(): void
     {
@@ -179,7 +174,6 @@ class RateControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testHousekeeperCannotAccessRates(): void
     {
@@ -206,7 +200,6 @@ class RateControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testCrossTenantIsolation(): void
     {
@@ -244,7 +237,6 @@ class RateControllerTest extends ApiTestCase
     // ── Feature flag ──
 
     /**
-     * @group integration
      */
     public function testStarterPlanCannotWriteRates(): void
     {
@@ -270,7 +262,6 @@ class RateControllerTest extends ApiTestCase
     }
 
     /**
-     * @group integration
      */
     public function testProPlanCanWriteRates(): void
     {
@@ -292,7 +283,6 @@ class RateControllerTest extends ApiTestCase
     // ── Validation — body incomplet ──
 
     /**
-     * @group integration
      */
     public function testCreatePlanWithMissingFieldsReturns422(): void
     {

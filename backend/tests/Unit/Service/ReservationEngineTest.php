@@ -6,10 +6,14 @@ use App\Hotel\Billing\Domain\Service\InvoiceDraftService;
 use App\Hotel\Guest\Domain\Entity\Guest;
 use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
 use App\Hotel\Housekeeping\Domain\Entity\CleaningTask;
+use App\Hotel\Billing\Domain\Service\FeeInvoiceService;
 use App\Hotel\Housekeeping\Infrastructure\Repository\CleaningTaskRepository;
 use App\Hotel\NightAudit\Domain\Service\BusinessDateService;
 use App\Hotel\NightAudit\Domain\Service\DailyCloseLockChecker;
 use App\Hotel\Property\Domain\Entity\HotelProfile;
+use App\Hotel\Reservation\Domain\Service\ReservationFeeCalculator;
+use App\Platform\Tenant\Domain\Entity\Tenant;
+use App\Shared\TenantContext;
 use App\Hotel\Rate\Domain\Service\PriceCalculator;
 use App\Hotel\Rate\Infrastructure\Repository\PromotionRepository;
 use App\Hotel\Rate\Infrastructure\Repository\RatePlanRepository;
@@ -88,6 +92,15 @@ class ReservationEngineTest extends TestCase
             new \DateTimeImmutable('today', new \DateTimeZone('Africa/Dakar'))
         );
 
+        // Tenant + fee services : pas utilisés dans ce TestCase (qui
+        // ne couvre pas markNoShow/cancel avec fees), mais nécessaires
+        // au constructeur.
+        $tenantContext = new TenantContext();
+        $tenant = new Tenant();
+        $tenantContext->set($tenant);
+        $feeCalculator    = new ReservationFeeCalculator();
+        $feeInvoiceService = $this->createMock(FeeInvoiceService::class);
+
         $this->engine = new ReservationEngine(
             $this->reservationRepo,
             $this->roomRepo,
@@ -104,6 +117,9 @@ class ReservationEngineTest extends TestCase
             $this->promotionRepo,
             $lockChecker,
             $businessDateService,
+            $tenantContext,
+            $feeCalculator,
+            $feeInvoiceService,
         );
 
         $this->staff = $this->createMock(StaffUser::class);
@@ -139,9 +155,14 @@ class ReservationEngineTest extends TestCase
         $ref = new \ReflectionProperty(Reservation::class, 'id');
         $ref->setValue($reservation, Uuid::v4());
 
+        // Dates relatives à today plutôt qu'absolues : sinon le garde-fou
+        // checkIn (hotfix entre 14-B.1.2.2 et 14-B.2) refuse les résa
+        // dont le checkOut est dans le passé, et les tests deviennent
+        // dépendants du calendrier.
+        $tz = new \DateTimeZone('Africa/Dakar');
         $reservation->setStatusEnum(ReservationStatus::from($status));
-        $reservation->setCheckIn(new \DateTimeImmutable('2026-06-01', new \DateTimeZone('Africa/Dakar')));
-        $reservation->setCheckOut(new \DateTimeImmutable('2026-06-04', new \DateTimeZone('Africa/Dakar')));
+        $reservation->setCheckIn(new \DateTimeImmutable('today', $tz));
+        $reservation->setCheckOut(new \DateTimeImmutable('+3 days', $tz));
         $reservation->setRateXof('45000.00');
         $reservation->setTotalXof('135000.00');
         $reservation->setConfirmationNumber('RES-2026-00001');
@@ -181,8 +202,12 @@ class ReservationEngineTest extends TestCase
         $dto = new CreateReservationDTO();
         $dto->roomId   = (string) Uuid::v4();
         $dto->guestId  = (string) Uuid::v4();
-        $dto->checkIn  = '2026-06-01';
-        $dto->checkOut = '2026-06-04';
+        // Dates relatives à today : sinon le garde-fou create (Hotfix
+        // entre 14-B.1.2.2 et 14-B.2) refuse les résa dont le checkOut
+        // est passé. 3 nuits pour conserver les assertions getNights()=3.
+        $tz = new \DateTimeZone('Africa/Dakar');
+        $dto->checkIn  = (new \DateTimeImmutable('today',   $tz))->format('Y-m-d');
+        $dto->checkOut = (new \DateTimeImmutable('+3 days', $tz))->format('Y-m-d');
         $dto->adults   = 2;
 
         $reservation = $this->engine->create($dto, $this->staff);
@@ -191,6 +216,62 @@ class ReservationEngineTest extends TestCase
         $this->assertEquals('confirmed', $reservation->getStatus());
         $this->assertEquals('135000.00', $reservation->getTotalXof());
         $this->assertEquals(3, $reservation->getNights());
+    }
+
+    // ── Test 1bis : audit log porte l'UUID réel (pas 'new') ──
+
+    public function testCreateReservationLogsAuditWithRealEntityId(): void
+    {
+        $room  = $this->makeRoom('312', '45000.00');
+        $guest = $this->makeGuest();
+
+        $this->roomRepo->method('find')->willReturn($room);
+        $this->guestRepo->method('find')->willReturn($guest);
+        $this->conflictChecker->expects($this->once())->method('assertAvailable');
+        $this->reservationRepo->method('generateConfirmationNumber')->willReturn('RES-2026-00099');
+
+        // Simule l'UuidV4Generator Doctrine : l'ID est défini dès persist()
+        $persistedReservation = null;
+        $this->entityManager->expects($this->once())->method('persist')
+            ->willReturnCallback(function (object $entity) use (&$persistedReservation) {
+                if ($entity instanceof Reservation) {
+                    $ref = new \ReflectionProperty(Reservation::class, 'id');
+                    $ref->setValue($entity, Uuid::v4());
+                    $persistedReservation = $entity;
+                }
+            });
+        $this->entityManager->expects($this->once())->method('flush');
+
+        // Capture l'entityId passé à AuditService::log
+        $capturedEntityId   = null;
+        $capturedEntityType = null;
+        $this->auditService->expects($this->once())->method('log')
+            ->willReturnCallback(function (
+                string $action,
+                string $entityType,
+                string $entityId,
+            ) use (&$capturedEntityId, &$capturedEntityType): void {
+                $capturedEntityId   = $entityId;
+                $capturedEntityType = $entityType;
+            });
+
+        $dto = new CreateReservationDTO();
+        $dto->roomId   = (string) Uuid::v4();
+        $dto->guestId  = (string) Uuid::v4();
+        // Dates relatives à today : sinon le garde-fou create (Hotfix
+        // entre 14-B.1.2.2 et 14-B.2) refuse les résa dont le checkOut
+        // est passé. 3 nuits pour conserver les assertions getNights()=3.
+        $tz = new \DateTimeZone('Africa/Dakar');
+        $dto->checkIn  = (new \DateTimeImmutable('today',   $tz))->format('Y-m-d');
+        $dto->checkOut = (new \DateTimeImmutable('+3 days', $tz))->format('Y-m-d');
+        $dto->adults   = 2;
+
+        $reservation = $this->engine->create($dto, $this->staff);
+
+        self::assertNotSame('new', $capturedEntityId, "L'audit ne doit plus contenir le marqueur littéral 'new'");
+        self::assertNotSame('', $capturedEntityId);
+        self::assertSame((string) $reservation->getId(), $capturedEntityId);
+        self::assertSame('Reservation', $capturedEntityType);
     }
 
     // ── Test 2 : Conflit de réservation ──
@@ -209,8 +290,12 @@ class ReservationEngineTest extends TestCase
         $dto = new CreateReservationDTO();
         $dto->roomId   = (string) Uuid::v4();
         $dto->guestId  = (string) Uuid::v4();
-        $dto->checkIn  = '2026-06-01';
-        $dto->checkOut = '2026-06-04';
+        // Dates relatives à today : sinon le garde-fou create (Hotfix
+        // entre 14-B.1.2.2 et 14-B.2) refuse les résa dont le checkOut
+        // est passé. 3 nuits pour conserver les assertions getNights()=3.
+        $tz = new \DateTimeZone('Africa/Dakar');
+        $dto->checkIn  = (new \DateTimeImmutable('today',   $tz))->format('Y-m-d');
+        $dto->checkOut = (new \DateTimeImmutable('+3 days', $tz))->format('Y-m-d');
 
         $this->expectException(ConflictException::class);
         $this->engine->create($dto, $this->staff);
@@ -225,8 +310,12 @@ class ReservationEngineTest extends TestCase
         $dto = new CreateReservationDTO();
         $dto->roomId   = (string) Uuid::v4();
         $dto->guestId  = (string) Uuid::v4();
-        $dto->checkIn  = '2026-06-01';
-        $dto->checkOut = '2026-06-04';
+        // Dates relatives à today : sinon le garde-fou create (Hotfix
+        // entre 14-B.1.2.2 et 14-B.2) refuse les résa dont le checkOut
+        // est passé. 3 nuits pour conserver les assertions getNights()=3.
+        $tz = new \DateTimeZone('Africa/Dakar');
+        $dto->checkIn  = (new \DateTimeImmutable('today',   $tz))->format('Y-m-d');
+        $dto->checkOut = (new \DateTimeImmutable('+3 days', $tz))->format('Y-m-d');
 
         $this->expectException(\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
         $this->engine->create($dto, $this->staff);
@@ -289,8 +378,11 @@ class ReservationEngineTest extends TestCase
 
         $result = $this->engine->cancel($reservation, 'Client demande annulation', $this->staff);
 
-        $this->assertEquals('cancelled', $result->getStatus());
-        $this->assertStringContainsString('Client demande annulation', $result->getNotes());
+        // Sprint 13quinquies : cancel retourne désormais un array
+        // {reservation, invoice, feeXof, feeQuote}
+        $this->assertEquals('cancelled', $result['reservation']->getStatus());
+        $this->assertStringContainsString('Client demande annulation', $result['reservation']->getNotes());
+        $this->assertSame('0.00', $result['feeXof']); // policy FLEXIBLE par défaut (Tenant vide)
     }
 
     // ── Test 6b : Annulation publie sur Mercure ──

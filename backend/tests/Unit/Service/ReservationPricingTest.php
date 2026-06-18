@@ -7,10 +7,14 @@ use App\Hotel\Billing\Domain\Service\InvoiceDraftService;
 use App\Hotel\Billing\Infrastructure\Repository\InvoiceRepository;
 use App\Hotel\Guest\Domain\Entity\Guest;
 use App\Hotel\Guest\Infrastructure\Repository\GuestRepository;
+use App\Hotel\Billing\Domain\Service\FeeInvoiceService;
 use App\Hotel\Housekeeping\Infrastructure\Repository\CleaningTaskRepository;
 use App\Hotel\NightAudit\Domain\Service\BusinessDateService;
 use App\Hotel\NightAudit\Domain\Service\DailyCloseLockChecker;
 use App\Hotel\Property\Domain\Entity\HotelProfile;
+use App\Hotel\Reservation\Domain\Service\ReservationFeeCalculator;
+use App\Platform\Tenant\Domain\Entity\Tenant;
+use App\Shared\TenantContext;
 use App\Hotel\Rate\Domain\Entity\Promotion;
 use App\Hotel\Rate\Domain\Entity\SeasonalRate;
 use App\Hotel\Rate\Domain\Enum\PromotionType;
@@ -81,9 +85,12 @@ class ReservationPricingTest extends TestCase
 
         $priceCalculator = new PriceCalculator($this->seasonalRepo, $this->promotionRepo);
 
+        // Mock "today" sur 2026-05-15 pour aligner avec les dates de test
+        // (résa 01-06 juin 2026). Sinon le garde-fou create/update (Hotfix
+        // entre 14-B.1.2.2 et 14-B.2) refuse les dates passées.
         $businessDateService = $this->createMock(BusinessDateService::class);
         $businessDateService->method('getCurrentBusinessDate')->willReturn(
-            new \DateTimeImmutable('today', new \DateTimeZone('Africa/Dakar'))
+            new \DateTimeImmutable('2026-05-15', new \DateTimeZone('Africa/Dakar'))
         );
 
         $this->engine = new ReservationEngine(
@@ -102,7 +109,17 @@ class ReservationPricingTest extends TestCase
             $this->promotionRepo,
             $this->createMock(DailyCloseLockChecker::class),
             $businessDateService,
+            $this->makeTenantContext(),
+            new ReservationFeeCalculator(),
+            $this->createMock(FeeInvoiceService::class),
         );
+    }
+
+    private function makeTenantContext(): TenantContext
+    {
+        $ctx = new TenantContext();
+        $ctx->set(new Tenant());
+        return $ctx;
     }
 
     private function makeRoom(string $baseRate = '45000.00'): Room

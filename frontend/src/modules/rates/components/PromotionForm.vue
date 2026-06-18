@@ -99,8 +99,7 @@ async function submit(): Promise<void> {
     @click.self="emit('close')"
   >
     <div style="background:#fff; border-radius:var(--radius-xl); padding:1.5rem; width:520px; max-width:90vw; max-height:90vh; overflow-y:auto;">
-
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
         <h3 style="font-size:18px; font-weight:500; color:var(--pms-ink);">
           {{ promotion ? 'Modifier la promotion' : 'Nouvelle promotion' }}
         </h3>
@@ -202,7 +201,6 @@ async function submit(): Promise<void> {
           </template>
         </button>
       </div>
-
-    </div>
+</div>
   </div>
 </template>

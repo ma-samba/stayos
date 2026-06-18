@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useReservationsStore } from '@/stores/reservations.store'
+import { useNotificationsStore } from '@/stores/notifications.store'
 import type { Reservation, ReservationStatus, Invoice } from '@/types/entities'
 import { formatCurrency } from '@/utils/currency'
 import api from '@/services/api.service'
 import type { ApiSuccess } from '@/types/entities'
 import { invoiceService } from '@/services/invoice.service'
 import ReservationForm from '@/modules/reservations/components/ReservationForm.vue'
+import MarkNoShowModal from '@/modules/reservations/components/MarkNoShowModal.vue'
+import CancelReservationModal from '@/modules/reservations/components/CancelReservationModal.vue'
+import type { NoShowPolicy } from '@/types/financial-policies'
 
 const route  = useRoute()
 const router = useRouter()
 const store  = useReservationsStore()
+const notif  = useNotificationsStore()
 
 const reservation    = ref<Reservation | null>(null)
 const linkedInvoice  = ref<Invoice | null>(null)
@@ -64,11 +69,88 @@ const statusLabels: Record<ReservationStatus, string> = {
   no_show:     'Non présenté',
 }
 
-const showEditForm = ref(false)
+const showEditForm    = ref(false)
+const showNoShowModal = ref(false)
+const showCancelModal = ref(false)
+const submittingNoShow = ref(false)
+const submittingCancel = ref(false)
+
+const todayDakar = computed(() => {
+  // 'YYYY-MM-DD' courant
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Dakar' })
+})
+
+const canMarkNoShow = computed<boolean>(() => {
+  if (!reservation.value) return false
+  const s = reservation.value.status
+  if (s !== 'confirmed' && s !== 'pending') return false
+  // checkIn <= today
+  return reservation.value.checkIn.split('T')[0] <= todayDakar.value
+})
+
+const canCancel = computed<boolean>(() => {
+  if (!reservation.value) return false
+  const s = reservation.value.status
+  return s === 'confirmed' || s === 'pending'
+})
 
 async function onEdited(): Promise<void> {
   showEditForm.value = false
   await load()
+}
+
+async function onConfirmNoShow(policyOverride: NoShowPolicy | undefined): Promise<void> {
+  if (!reservation.value) return
+  submittingNoShow.value = true
+  try {
+    const result = await store.markNoShow(reservation.value.id, policyOverride)
+    showNoShowModal.value = false
+    if (result.invoice !== null) {
+      notif.pushUiToast(
+        'success',
+        `Réservation marquée no-show. Facture ${result.invoice.number} créée pour ${result.feeXof} XOF.`,
+      )
+    } else {
+      notif.pushUiToast('success', 'Réservation marquée no-show. Aucune facturation.')
+    }
+    await load()
+  } catch (e: unknown) {
+    notif.pushUiToast('alert', extractError(e, 'Action no-show impossible.'))
+  } finally {
+    submittingNoShow.value = false
+  }
+}
+
+async function onConfirmCancel(payload: { reason: string; feeOverrideXof?: string }): Promise<void> {
+  if (!reservation.value) return
+  submittingCancel.value = true
+  try {
+    const result = await store.cancel(
+      reservation.value.id,
+      payload.reason,
+      payload.feeOverrideXof,
+    )
+    showCancelModal.value = false
+    if (result.invoice !== null) {
+      notif.pushUiToast(
+        'success',
+        `Annulation enregistrée. Facture ${result.invoice.number} créée pour ${result.feeXof} XOF.`,
+      )
+    } else {
+      notif.pushUiToast('success', 'Annulation enregistrée. Aucune facturation.')
+    }
+    await load()
+  } catch (e: unknown) {
+    notif.pushUiToast('alert', extractError(e, 'Annulation impossible.'))
+  } finally {
+    submittingCancel.value = false
+  }
+}
+
+function extractError(e: unknown, fallback: string): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = (e as any)?.response?.data
+  return resp?.error ?? fallback
 }
 
 function goBack(): void {
@@ -116,6 +198,20 @@ onMounted(load)
             @click="showEditForm = true"
           >
             <i class="ti ti-edit"></i> Modifier
+          </button>
+          <button
+            v-if="canMarkNoShow"
+            class="btn btn-secondary"
+            @click="showNoShowModal = true"
+          >
+            <i class="ti ti-user-off"></i> Marquer no-show
+          </button>
+          <button
+            v-if="canCancel"
+            class="btn btn-secondary"
+            @click="showCancelModal = true"
+          >
+            <i class="ti ti-circle-x"></i> Annuler
           </button>
           <button
             v-if="linkedInvoice"
@@ -244,6 +340,24 @@ onMounted(load)
       :reservation="reservation"
       @close="showEditForm = false"
       @created="onEdited()"
+    />
+
+    <!-- Modals Sprint 13quinquies-A -->
+    <MarkNoShowModal
+      v-if="reservation"
+      :reservation="reservation"
+      :is-open="showNoShowModal"
+      :submitting="submittingNoShow"
+      @close="showNoShowModal = false"
+      @confirm="onConfirmNoShow"
+    />
+    <CancelReservationModal
+      v-if="reservation"
+      :reservation="reservation"
+      :is-open="showCancelModal"
+      :submitting="submittingCancel"
+      @close="showCancelModal = false"
+      @confirm="onConfirmCancel"
     />
   </div>
 </template>

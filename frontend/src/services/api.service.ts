@@ -38,7 +38,7 @@ api.interceptors.request.use((config) => {
 
 let isRefreshing = false
 let failedQueue: Array<{
-  resolve: (value: AxiosResponse) => void
+  resolve: (value: AxiosResponse | PromiseLike<AxiosResponse>) => void
   reject: (reason?: unknown) => void
   config: typeof api.defaults
 }> = []
@@ -48,7 +48,6 @@ function processQueue(error: Error | null, token: string | null): void {
     if (error) {
       reject(error)
     } else {
-      // @ts-expect-error — we're patching Authorization on stored config
       config.headers!.Authorization = `Bearer ${token}`
       resolve(api(config as never))
     }

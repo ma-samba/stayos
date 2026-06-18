@@ -3,6 +3,7 @@
 namespace App\Controller\Api;
 
 use Doctrine\DBAL\Connection;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\Routing\Attribute\Route;
@@ -16,6 +17,7 @@ class HealthController extends AbstractController
     public function __construct(
         private readonly Connection $connection,
         private readonly \Redis $redis,
+        private readonly LoggerInterface $logger,
     ) {}
 
     #[Route('/api/health', name: 'api_health', methods: ['GET'])]
@@ -28,7 +30,11 @@ class HealthController extends AbstractController
         try {
             $this->connection->executeQuery('SELECT 1');
             $checks['database'] = 'ok';
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $this->logger->error('Health check: database probe failed', [
+                'error' => $e->getMessage(),
+                'class' => $e::class,
+            ]);
             $checks['database'] = 'error';
             $healthy = false;
         }
@@ -36,7 +42,11 @@ class HealthController extends AbstractController
         // ── Redis ─────────────────────────────────────────────────────────────
         try {
             $checks['redis'] = $this->pingRedis() ? 'ok' : 'error';
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $this->logger->error('Health check: redis probe failed', [
+                'error' => $e->getMessage(),
+                'class' => $e::class,
+            ]);
             $checks['redis'] = 'error';
         }
 

@@ -15,7 +15,6 @@ use App\Hotel\Rate\Infrastructure\Repository\RatePlanRepository;
 use App\Hotel\Rate\Infrastructure\Repository\SeasonalRateRepository;
 use App\Hotel\Room\Infrastructure\Repository\RoomRepository;
 use App\Hotel\Room\Infrastructure\Repository\RoomTypeRepository;
-use App\Hotel\Shared\Domain\Service\FeatureChecker;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -33,7 +32,6 @@ class RateController extends AbstractApiController
         private readonly RoomRepository         $roomRepository,
         private readonly RoomTypeRepository     $roomTypeRepository,
         private readonly PriceCalculator        $priceCalculator,
-        private readonly FeatureChecker         $featureChecker,
         private readonly ValidatorInterface     $validator,
         private readonly EntityManagerInterface $entityManager,
     ) {}
@@ -49,10 +47,9 @@ class RateController extends AbstractApiController
     }
 
     #[Route('/plans', name: 'plans_create', methods: ['POST'])]
+    #[IsGranted('FEATURE_revenue_management')]
     public function createPlan(Request $request): JsonResponse
     {
-        $this->featureChecker->assertEnabled('revenue_management');
-
         $data = json_decode($request->getContent(), true) ?? [];
         $dto = $this->hydrateDto(new RatePlanDTO(), $data);
 
@@ -93,10 +90,9 @@ class RateController extends AbstractApiController
     }
 
     #[Route('/plans/{id}', name: 'plans_update', methods: ['PUT'])]
+    #[IsGranted('FEATURE_revenue_management')]
     public function updatePlan(RatePlan $plan, Request $request): JsonResponse
     {
-        $this->featureChecker->assertEnabled('revenue_management');
-
         $data = json_decode($request->getContent(), true) ?? [];
         $dto = $this->hydrateDto(new RatePlanDTO(), $data);
 
@@ -130,10 +126,9 @@ class RateController extends AbstractApiController
     }
 
     #[Route('/plans/{id}', name: 'plans_delete', methods: ['DELETE'])]
+    #[IsGranted('FEATURE_revenue_management')]
     public function deletePlan(RatePlan $plan): JsonResponse
     {
-        $this->featureChecker->assertEnabled('revenue_management');
-
         $plan->setIsActive(false);
         $this->entityManager->flush();
 
@@ -151,10 +146,9 @@ class RateController extends AbstractApiController
     }
 
     #[Route('/seasonal', name: 'seasonal_create', methods: ['POST'])]
+    #[IsGranted('FEATURE_revenue_management')]
     public function createSeasonal(Request $request): JsonResponse
     {
-        $this->featureChecker->assertEnabled('revenue_management');
-
         $data = json_decode($request->getContent(), true) ?? [];
         $dto = $this->hydrateDto(new SeasonalRateDTO(), $data);
 
@@ -194,10 +188,9 @@ class RateController extends AbstractApiController
     }
 
     #[Route('/seasonal/{id}', name: 'seasonal_update', methods: ['PUT'])]
+    #[IsGranted('FEATURE_revenue_management')]
     public function updateSeasonal(SeasonalRate $rate, Request $request): JsonResponse
     {
-        $this->featureChecker->assertEnabled('revenue_management');
-
         $data = json_decode($request->getContent(), true) ?? [];
         $dto = $this->hydrateDto(new SeasonalRateDTO(), $data);
 
@@ -234,10 +227,9 @@ class RateController extends AbstractApiController
     }
 
     #[Route('/seasonal/{id}', name: 'seasonal_delete', methods: ['DELETE'])]
+    #[IsGranted('FEATURE_revenue_management')]
     public function deleteSeasonal(SeasonalRate $rate): JsonResponse
     {
-        $this->featureChecker->assertEnabled('revenue_management');
-
         $rate->setIsActive(false);
         $this->entityManager->flush();
 

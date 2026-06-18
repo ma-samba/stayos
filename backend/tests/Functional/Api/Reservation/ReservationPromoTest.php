@@ -7,7 +7,6 @@ use App\Tests\Functional\ApiTestCase;
 class ReservationPromoTest extends ApiTestCase
 {
     /**
-     * @group integration
      */
     public function testCreateReservationViaApiAppliesPromoCode(): void
     {
@@ -36,8 +35,8 @@ class ReservationPromoTest extends ApiTestCase
             [
                 'roomId'    => $roomId,
                 'guestId'   => $guestId,
-                'checkIn'   => '2027-03-01',
-                'checkOut'  => '2027-03-04',
+                'checkIn'   => '2026-12-01',
+                'checkOut'  => '2026-12-04',
                 'adults'    => 1,
                 'promoCode' => 'OUVERTURE2026',
             ],

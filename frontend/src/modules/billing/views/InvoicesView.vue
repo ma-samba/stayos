@@ -95,8 +95,7 @@ onMounted(fetchInvoices)
 
 <template>
   <div style="padding:1.5rem; max-width:1400px; margin:0 auto;">
-
-    <!-- ── En-tête ── -->
+<!-- ── En-tête ── -->
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
       <div>
         <h1 style="font-size:22px; font-weight:500; color:var(--pms-ink); margin-bottom:4px;">
@@ -205,8 +204,7 @@ onMounted(fetchInvoices)
         </tbody>
       </table>
     </div>
-
-  </div>
+</div>
 </template>
 
 <style scoped>

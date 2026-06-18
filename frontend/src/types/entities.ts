@@ -142,6 +142,7 @@ export interface Payment {
   gatewayName: string | null
   paidAt: string | null
   processedAt: string | null
+  notes: string | null
 }
 
 export interface InvoiceLine {

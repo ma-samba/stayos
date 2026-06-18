@@ -8,8 +8,11 @@ use App\Hotel\Analytics\Domain\Service\KpiService;
 use App\Hotel\Analytics\Infrastructure\Repository\AnalyticsRepository;
 use App\Hotel\Reservation\Domain\Entity\Reservation;
 use App\Hotel\Room\Domain\Entity\Room;
+use App\Platform\Tenant\Domain\Entity\Tenant;
+use App\Shared\TenantContext;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Uid\Uuid;
 
 class KpiServiceTest extends TestCase
@@ -537,5 +540,164 @@ class KpiServiceTest extends TestCase
         $this->assertArrayHasKey('soldNights', $arr['dailySeries'][0]);
         $this->assertEquals('2026-06-01', $arr['from']);
         $this->assertEquals('2026-06-03', $arr['to']);
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  Sprint 14-B.2.2 — Cache KPI dashboard (kpi.cache)
+    // ══════════════════════════════════════════════════════════
+
+    /**
+     * Helper : fabrique un Tenant avec un UUID donné (réflexion sur la
+     * propriété `id` car le setter privé n'est exposé que via le
+     * provisioning).
+     */
+    private function makeTenantWithId(Uuid $uuid): Tenant
+    {
+        $tenant = new Tenant();
+        $ref = new \ReflectionProperty(Tenant::class, 'id');
+        $ref->setValue($tenant, $uuid);
+
+        return $tenant;
+    }
+
+    /**
+     * Helper : nouveau KpiService avec un repo mock dédié, un
+     * ArrayAdapter et un TenantContext rempli avec le tenant donné.
+     *
+     * @return array{KpiService, MockObject&AnalyticsRepository, ArrayAdapter}
+     */
+    private function makeCachedService(Tenant $tenant): array
+    {
+        $repo = $this->createMock(AnalyticsRepository::class);
+        $pool = new ArrayAdapter();
+
+        $tenantContext = new TenantContext();
+        $tenantContext->set($tenant);
+
+        $service = new KpiService($repo, $pool, $tenantContext);
+
+        return [$service, $repo, $pool];
+    }
+
+    public function testDashboardForDateCachedHitsCacheOnSecondCall(): void
+    {
+        $tenant = $this->makeTenantWithId(Uuid::v4());
+        [$service, $repo] = $this->makeCachedService($tenant);
+
+        // Repo doit être appelé exactement UNE fois, pas deux.
+        $repo->expects($this->once())->method('countActiveAvailableRooms')->willReturn(10);
+        $repo->expects($this->once())->method('reservationsIntersectingPeriod')->willReturn([]);
+        $repo->expects($this->once())->method('arrivalsForDay')->willReturn([]);
+        $repo->expects($this->once())->method('departuresForDay')->willReturn([]);
+
+        $tz    = new \DateTimeZone('Africa/Dakar');
+        $today = new \DateTimeImmutable('today', $tz);
+
+        $k1 = $service->dashboardForDateCached($today);
+        $k2 = $service->dashboardForDateCached($today);
+
+        $this->assertInstanceOf(DashboardKpis::class, $k1);
+        $this->assertEquals($k1->toArray(), $k2->toArray());
+    }
+
+    public function testCacheKeyIsScopedByTenant(): void
+    {
+        // Deux tenants distincts → deux clés distinctes → AnalyticsRepo
+        // mock distinct appelé une fois par tenant (pas de collision).
+        $tenantA = $this->makeTenantWithId(Uuid::v4());
+        $tenantB = $this->makeTenantWithId(Uuid::v4());
+
+        [$serviceA, $repoA] = $this->makeCachedService($tenantA);
+        [$serviceB, $repoB] = $this->makeCachedService($tenantB);
+
+        $repoA->expects($this->once())->method('countActiveAvailableRooms')->willReturn(10);
+        $repoA->expects($this->once())->method('reservationsIntersectingPeriod')->willReturn([]);
+        $repoA->expects($this->once())->method('arrivalsForDay')->willReturn([]);
+        $repoA->expects($this->once())->method('departuresForDay')->willReturn([]);
+
+        $repoB->expects($this->once())->method('countActiveAvailableRooms')->willReturn(20);
+        $repoB->expects($this->once())->method('reservationsIntersectingPeriod')->willReturn([]);
+        $repoB->expects($this->once())->method('arrivalsForDay')->willReturn([]);
+        $repoB->expects($this->once())->method('departuresForDay')->willReturn([]);
+
+        $tz    = new \DateTimeZone('Africa/Dakar');
+        $today = new \DateTimeImmutable('today', $tz);
+
+        $kA = $serviceA->dashboardForDateCached($today);
+        $kB = $serviceB->dashboardForDateCached($today);
+
+        // Pas de leak : chaque tenant voit ses propres chiffres.
+        $this->assertSame(10, $kA->availableRooms);
+        $this->assertSame(20, $kB->availableRooms);
+    }
+
+    public function testInvalidateDashboardCacheForcesRecompute(): void
+    {
+        $tenant = $this->makeTenantWithId(Uuid::v4());
+        [$service, $repo] = $this->makeCachedService($tenant);
+
+        // Repo appelé exactement 2 fois : 1 fois avant invalidation
+        // (warm-up), 1 fois après invalidation (re-warm).
+        $repo->expects($this->exactly(2))->method('countActiveAvailableRooms')->willReturn(10);
+        $repo->expects($this->exactly(2))->method('reservationsIntersectingPeriod')->willReturn([]);
+        $repo->expects($this->exactly(2))->method('arrivalsForDay')->willReturn([]);
+        $repo->expects($this->exactly(2))->method('departuresForDay')->willReturn([]);
+
+        $tz    = new \DateTimeZone('Africa/Dakar');
+        $today = new \DateTimeImmutable('today', $tz);
+
+        $service->dashboardForDateCached($today); // warm
+        $service->dashboardForDateCached($today); // hit
+
+        $service->invalidateDashboardCache($today);
+
+        $service->dashboardForDateCached($today); // miss → recompute
+    }
+
+    public function testPastDateUsesLongTtlAndStoresEntry(): void
+    {
+        $tenant = $this->makeTenantWithId(Uuid::v4());
+        [$service, $repo, $pool] = $this->makeCachedService($tenant);
+
+        $repo->expects($this->once())->method('countActiveAvailableRooms')->willReturn(10);
+        $repo->expects($this->once())->method('reservationsIntersectingPeriod')->willReturn([]);
+        $repo->expects($this->once())->method('arrivalsForDay')->willReturn([]);
+        $repo->expects($this->once())->method('departuresForDay')->willReturn([]);
+
+        $tz    = new \DateTimeZone('Africa/Dakar');
+        $past  = (new \DateTimeImmutable('today', $tz))->modify('-7 days');
+
+        $service->dashboardForDateCached($past);
+
+        // L'entrée doit être présente sous la clé tenant-scoped.
+        $key  = sprintf('kpi_dashboard_%s_%s', (string) $tenant->getId(), $past->setTime(0, 0)->format('Y-m-d'));
+        $item = $pool->getItem($key);
+
+        $this->assertTrue($item->isHit(), 'L\'entrée de cache doit avoir été persistée pour une date passée');
+        $this->assertInstanceOf(DashboardKpis::class, $item->get());
+    }
+
+    public function testFutureDateBypassesCache(): void
+    {
+        $tenant = $this->makeTenantWithId(Uuid::v4());
+        [$service, $repo, $pool] = $this->makeCachedService($tenant);
+
+        // Deux appels successifs sur une date future → repo appelé 2x
+        // (pas de cache).
+        $repo->expects($this->exactly(2))->method('countActiveAvailableRooms')->willReturn(10);
+        $repo->expects($this->exactly(2))->method('reservationsIntersectingPeriod')->willReturn([]);
+        $repo->expects($this->exactly(2))->method('arrivalsForDay')->willReturn([]);
+        $repo->expects($this->exactly(2))->method('departuresForDay')->willReturn([]);
+
+        $tz     = new \DateTimeZone('Africa/Dakar');
+        $future = (new \DateTimeImmutable('today', $tz))->modify('+7 days');
+
+        $service->dashboardForDateCached($future);
+        $service->dashboardForDateCached($future);
+
+        // Rien n'a été stocké sous la clé du tenant.
+        $key  = sprintf('kpi_dashboard_%s_%s', (string) $tenant->getId(), $future->setTime(0, 0)->format('Y-m-d'));
+        $item = $pool->getItem($key);
+        $this->assertFalse($item->isHit(), 'Aucune entrée de cache pour une date future');
     }
 }

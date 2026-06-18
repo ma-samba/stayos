@@ -42,8 +42,7 @@ onUnmounted(() => {
 
 <template>
   <div class="hk-page">
-
-    <!-- ── Header ── -->
+<!-- ── Header ── -->
     <div class="hk-header">
       <div>
         <h1 class="hk-title">Ménage</h1>
@@ -114,8 +113,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-
-  </div>
+</div>
 </template>
 
 <style scoped>

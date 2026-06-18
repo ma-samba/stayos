@@ -21,7 +21,6 @@ use Doctrine\ORM\EntityManagerInterface;
  * tearDown restaurent l'état ACTIVE pour ne pas polluer les fixtures
  * partagées avec les autres suites.
  *
- * @group integration
  */
 class SuperAdminTest extends ApiTestCase
 {
@@ -335,7 +334,7 @@ class SuperAdminTest extends ApiTestCase
             'activeTenantsCount',
             'trialTenantsCount',
             'suspendedTenantsCount',
-            'cancelledTenantsCount',
+            'churnedTenantsCount',
             'newTenantsLast30Days',
             'churnLast30Days',
             'planDistribution',

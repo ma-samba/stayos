@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Hotel\Billing\Domain\Service;
 
 use App\Hotel\Billing\Application\DTO\RecordPaymentDTO;
+use App\Hotel\Billing\Application\DTO\RefundDTO;
 use App\Hotel\Billing\Domain\Entity\Invoice;
 use App\Hotel\Billing\Domain\Entity\Payment;
 use App\Hotel\Billing\Domain\Enum\InvoiceStatus;
@@ -149,6 +150,135 @@ class InvoiceService
         ]);
 
         return $payment;
+    }
+
+    /**
+     * Enregistre un remboursement (sortie de caisse) sur une facture.
+     *
+     * Matérialisation V1 minimaliste : un nouveau Payment avec montant
+     * NÉGATIF et statut PAID. Pas de credit note dédiée, pas
+     * d'intégration Paydunya. Le remboursement effectif est manuel
+     * côté agent client.
+     *
+     * Le calcul de balance via `Invoice::getPaidXof()` somme
+     * naturellement les paiements PAID (positifs + négatifs), donc
+     * le solde reflète correctement la sortie.
+     *
+     * @param string $dto->amountXof Montant POSITIF saisi par l'utilisateur.
+     */
+    public function refundPayment(
+        Invoice    $invoice,
+        RefundDTO  $dto,
+        StaffUser  $staff,
+    ): Payment {
+        // Verrou night audit : le refund est une opération du JOUR
+        // courant (sortie de caisse aujourd'hui), pas de la date de
+        // la facture. Cohérent avec recordPayment().
+        $this->closeLockChecker->assertCanModifyDate(
+            $this->businessDateService->getCurrentBusinessDate()
+        );
+
+        $reason = trim($dto->reason);
+
+        // Garde anti-over-refund : on ne rembourse pas plus que ce qui
+        // a été effectivement encaissé en net (paiements - refunds
+        // antérieurs).
+        $alreadyPaid = $invoice->getPaidXof();
+        if (bccomp($dto->amountXof, $alreadyPaid, 2) > 0) {
+            throw new BusinessRuleException(sprintf(
+                'Impossible de rembourser %s XOF — seulement %s XOF effectivement payés sur cette facture.',
+                $dto->amountXof,
+                $alreadyPaid,
+            ));
+        }
+
+        $method = PaymentMethod::from($dto->method);
+
+        // Stockage en NÉGATIF (sortie de caisse)
+        $negativeAmount = bcsub('0', bcadd($dto->amountXof, '0', 2), 2);
+
+        $refund = new Payment();
+        $refund->setInvoice($invoice);
+        $refund->setMethodEnum($method);
+        $refund->setAmountXof($negativeAmount);
+        $refund->setStatusEnum(PaymentStatus::PAID);
+        $refund->setPaidAt(new \DateTimeImmutable('now', new \DateTimeZone('Africa/Dakar')));
+        $refund->setNotes(sprintf('[Remboursement] %s', $reason));
+
+        $invoice->addPayment($refund);
+        $this->entityManager->persist($refund);
+
+        // Recalcul de statut Invoice (CANCELLED reste CANCELLED)
+        $previousStatus = $invoice->getStatus();
+        $newStatus      = $this->resolveStatusAfterRefund($invoice);
+        if ($newStatus !== null) {
+            $invoice->setStatusEnum($newStatus);
+        }
+
+        $this->auditService->log(
+            action:     'payment.refunded',
+            entityType: 'Payment',
+            entityId:   (string) $refund->getId(),
+            after:      [
+                'invoice'        => $invoice->getNumber(),
+                'method'         => $method->value,
+                'amountRefunded' => bcadd($dto->amountXof, '0', 2),  // valeur saisie (positive)
+                'storedAsXof'    => $negativeAmount,                  // valeur persistée (négative)
+                'reason'         => $reason,
+                'previousStatus' => $previousStatus,
+                'newStatus'      => $invoice->getStatus(),
+            ],
+            staffUser:  $staff,
+        );
+
+        $this->entityManager->flush();
+
+        $this->logger->info('Payment refunded', [
+            'invoice_id'     => (string) $invoice->getId(),
+            'invoice_number' => $invoice->getNumber(),
+            'method'         => $method->value,
+            'amountXof'      => $dto->amountXof,
+            'reason'         => $reason,
+            'new_status'     => $invoice->getStatus(),
+        ]);
+
+        $this->mercurePublisher->publish('payment.refunded', [
+            'invoiceId'     => (string) $invoice->getId(),
+            'invoiceNumber' => $invoice->getNumber(),
+            'amountXof'     => $dto->amountXof,
+            'method'        => $method->value,
+            'refundedAt'    => $refund->getPaidAt()?->format('c'),
+        ]);
+
+        return $refund;
+    }
+
+    /**
+     * Détermine le nouveau statut Invoice après un refund.
+     * CANCELLED reste CANCELLED. Sinon :
+     *   - balance >= total → ISSUED (rien payé en net)
+     *   - balance <= 0     → PAID (totalement payé ou surpayé)
+     *   - sinon            → PARTIAL
+     *
+     * Retourne null si pas de transition (CANCELLED).
+     */
+    private function resolveStatusAfterRefund(Invoice $invoice): ?InvoiceStatus
+    {
+        if ($invoice->getStatusEnum() === InvoiceStatus::CANCELLED) {
+            return null;
+        }
+
+        $balance = $invoice->getBalanceXof();
+        $total   = $invoice->getTotalXof();
+
+        if (bccomp($balance, $total, 2) >= 0) {
+            return InvoiceStatus::ISSUED;
+        }
+        if (bccomp($balance, '0', 2) <= 0) {
+            return InvoiceStatus::PAID;
+        }
+
+        return InvoiceStatus::PARTIAL;
     }
 
     /**
