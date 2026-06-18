@@ -148,7 +148,8 @@ Voir `.claude/docs/deploy.md` pour le guide complet (setup Heroku, RDS, Vercel, 
 ```
 stayos/
 ├── backend/                   # Symfony 7
-│   ├── Procfile               # Heroku : web + worker + release
+│   ├── heroku.yml             # Heroku container stack : web + worker + release
+│   ├── docker/php/            # Dockerfile.prod (FrankenPHP) + Caddyfile
 │   ├── config/packages/       # JWT, CORS, Messenger, Mercure...
 │   └── src/
 │       ├── Platform/          # SaaS (Tenant, Plan, Subscription...)

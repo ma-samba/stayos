@@ -6,7 +6,7 @@
  *      (localhost, 127.0.0.1, IP). Ex :
  *        savana.localhost          → "savana"
  *        villa-collines.localhost  → "villa-collines"
- *        savana.stayos.sn          → "savana"
+ *        savana.getstayos.com      → "savana"
  *   2. VITE_DEFAULT_TENANT_SLUG (fallback dev quand on tape localhost:5173).
  *   3. null si rien — le caller doit alors omettre le header.
  */

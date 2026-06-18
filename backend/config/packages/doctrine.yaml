@@ -18,3 +18,28 @@ doctrine:
                 alias: App
         controller_resolver:
             auto_mapping: false
+
+# ── Override prod — Sprint 14-C.2 ─────────────────────────────────────────────
+#
+# Heroku Data for Postgres injecte `DATABASE_URL=postgres://USER:PASS@HOST:5432/DB`
+# (sans serverVersion, sans sslmode). Trois soucis pour Doctrine 4 + DBAL :
+#   1. Le schéma `postgres://` est refusé (DBAL exige `postgresql://`).
+#   2. Heroku Postgres impose SSL → il faut `sslmode=require`.
+#   3. Sans `serverVersion=…`, Doctrine fait une introspection au premier
+#      boot (coûteuse et fragile en cold-start).
+#
+# Le processeur `heroku_db` (App\Shared\Env\HerokuDatabaseUrlProcessor)
+# normalise tout ça de manière idempotente. Composition de processeurs :
+# `%env(heroku_db:resolve:DATABASE_URL)%`
+#   - `resolve:` est exécuté D'ABORD (processeur le plus interne) →
+#     déréférence les `%env(...)%` éventuels dans la valeur brute.
+#   - `heroku_db:` est exécuté ENSUITE sur la string résolue → fixe
+#     schéma + ajoute sslmode + serverVersion si absents.
+#
+# Volontairement non câblé en dev/test : nos URLs `postgresql://…?serverVersion=16`
+# sont déjà normalisées dans `.env` / `.env.test` et il est inutile de payer
+# le coût de parse_url à chaque résolution.
+when@prod:
+    doctrine:
+        dbal:
+            url: '%env(heroku_db:resolve:DATABASE_URL)%'

@@ -27,7 +27,7 @@ use Symfony\Component\Routing\Attribute\Route;
  *    avant le firewall `api`, `security: false`.
  *
  * Le slug tenant arrive via le sous-domaine
- * (`{slug}.stayos.sn`) ou le header `X-Tenant-Slug` en dev local.
+ * (`{slug}.getstayos.com`) ou le header `X-Tenant-Slug` en dev local.
  *
  * Un tenant suspendu ne peut PAS valider d'invitation (V1) :
  * `TenantMiddleware` lèvera 402 avant ce controller, ce qui est

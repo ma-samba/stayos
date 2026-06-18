@@ -214,7 +214,7 @@ onMounted(fetchTenant)
         </div>
         <p class="t-muted">
           <span class="t-mono">{{ tenant.slug }}</span>
-          · {{ tenant.subdomain }}.stayos.sn
+          · {{ tenant.subdomain }}.getstayos.com
         </p>
       </header>
 

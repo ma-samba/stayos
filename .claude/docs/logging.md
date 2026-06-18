@@ -268,13 +268,13 @@ Alerte 4 : "webhook_invalid_sig" > 5/heure → email (tentative d'attaque)
 
 ### Status page publique
 UptimeRobot permet de créer une page de statut publique :
-`https://status.stayos.sn` → rassure les clients hôteliers en cas d'incident.
+`https://status.getstayos.com` → rassure les clients hôteliers en cas d'incident.
 
 ---
 
 ## Dashboard SuperAdmin — Métriques plateforme
 
-Accessible sur `superadmin.stayos.sn` — vue opérateur en temps réel.
+Accessible sur `superadmin.getstayos.com` — vue opérateur en temps réel.
 
 ```
 Métriques à afficher :
@@ -296,7 +296,7 @@ Métriques à afficher :
 // Messages envoyés automatiquement par les services métier
 
 // Si un paiement Paydunya échoue 3 fois de suite
-→ SendEmailMessage(to: admin@stayos.sn, subject: 'Paiement échoué multiple', ...)
+→ SendEmailMessage(to: admin@getstayos.com, subject: 'Paiement échoué multiple', ...)
 
 // Si la queue Messenger dépasse 50 messages en attente
 → Log warning + alerte Sentry

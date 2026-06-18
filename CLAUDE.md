@@ -23,7 +23,7 @@ Backend Symfony 7 (API REST) + Frontend Vue.js 3.
 ## Infrastructure
 ```
 Dev local  → Docker Compose (PHP + Nginx + PostgreSQL + Redis + Mercure + Mailpit)
-Backend    → Heroku (buildpack PHP, Procfile)
+Backend    → Heroku container stack (FrankenPHP, heroku.yml)
 Frontend   → Vercel (Vue.js, vercel.json)
 BDD prod   → Amazon RDS PostgreSQL 16
 Cache prod → Heroku Redis addon

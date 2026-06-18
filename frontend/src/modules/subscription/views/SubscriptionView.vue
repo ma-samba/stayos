@@ -139,7 +139,7 @@ const statusBanner = computed<StatusBanner | null>(() => {
         icon: 'ti-circle-x',
         message: 'Accès suspendu. Contactez le support pour réactiver votre abonnement.',
         ctaLabel: 'Contacter le support',
-        ctaTarget: 'mailto:support@stayos.sn',
+        ctaTarget: 'mailto:support@getstayos.com',
       }
     default:
       return null

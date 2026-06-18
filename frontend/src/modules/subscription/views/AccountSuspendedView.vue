@@ -113,7 +113,7 @@ function logoutAndRedirect(): void {
 
       <a
         class="suspended-help"
-        href="mailto:support@stayos.sn?subject=Compte%20suspendu"
+        href="mailto:support@getstayos.com?subject=Compte%20suspendu"
       >
         Besoin d'aide&nbsp;? Contacter le support
       </a>

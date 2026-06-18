@@ -31,7 +31,7 @@ Identifie le tenant depuis la requête HTTP.
 ```php
 class TenantResolver
 {
-    // Extrait le slug depuis le subdomain : acacia.stayos.sn → "acacia"
+    // Extrait le slug depuis le subdomain : acacia.getstayos.com → "acacia"
     public function resolveFromRequest(Request $request): Tenant
 
     // Lève TenantNotFoundException si slug inconnu ou tenant suspendu

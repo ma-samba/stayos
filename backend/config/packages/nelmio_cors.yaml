@@ -82,6 +82,12 @@ when@prod:
             '^/api':
                 allow_origin:
                     - '%env(FRONTEND_URL)%'
+                    # Sous-domaines tenants *.getstayos.com (front
+                    # multi-subdomain : savana.getstayos.com,
+                    # villa-collines.getstayos.com, …). Ancrage strict
+                    # ^...$ : pas de sous-sous-domaine, pas de TLS
+                    # downgrade.
+                    - '^https://[a-z0-9-]+\.getstayos\.com$'
                     # Vercel preview deploys conservés pour les PR previews
                     - '^https://stayos.*\.vercel\.app$'
             '^/superadmin':
@@ -89,4 +95,5 @@ when@prod:
             '^/public':
                 allow_origin:
                     - '%env(FRONTEND_URL)%'
+                    - '^https://[a-z0-9-]+\.getstayos\.com$'
                     - '^https://stayos.*\.vercel\.app$'

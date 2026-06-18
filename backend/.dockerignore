@@ -1,0 +1,75 @@
+# ──────────────────────────────────────────────────────────────────────────────
+#  .dockerignore — Backend (build context = backend/ pour Dockerfile.prod)
+#
+#  Sprint 14-C. S'applique au build de `backend/docker/php/Dockerfile.prod`
+#  exécuté par Heroku container stack avec contexte = backend/.
+#
+#  Objectifs :
+#   1. AUCUN secret dans l'image (clés JWT, .env.local, etc.)
+#   2. Image légère (pas de vendor, var/cache, tests, fixtures de dev)
+#   3. Build déterministe (pas de fichiers générés type IDE, OS)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Secrets — JAMAIS dans l'image
+.env.local
+.env.local.php
+.env.*.local
+config/jwt/*.pem
+config/jwt/*.key
+
+# Sentry release token éventuel
+.sentryclirc
+
+# ── Dépendances regénérées dans le build
+vendor/
+node_modules/
+
+# ── Caches et données générées Symfony
+var/cache/
+var/log/
+var/coverage/
+var/data/
+var/sessions/
+
+# ── Tests (image prod n'a pas besoin de phpunit ni des tests)
+tests/
+phpunit.xml
+phpunit.xml.dist
+.phpunit.result.cache
+
+# ── Outillage dev
+.php-cs-fixer.cache
+.phpstan-cache/
+.phpstan.cache/
+phpstan.neon
+.php-cs-fixer.dist.php
+.php-cs-fixer.php
+
+# ── Métadonnées Git
+.git/
+.gitignore
+.gitattributes
+
+# ── Fichiers IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Docker dev (le Dockerfile.prod vit dans docker/php/ ; le reste de
+#    docker/ contient des configs Nginx/Mailpit/etc. uniquement utiles
+#    en dev — on ne les met pas dans l'image prod).
+#    On garde explicitement Dockerfile.prod et Caddyfile via négation.
+docker/
+!docker/php/Dockerfile.prod
+!docker/php/Caddyfile
+
+# ── Documentation et CI
+README.md
+CHANGELOG.md
+.github/
+
+# ── Fichier heroku.yml lui-même (utile à Heroku, pas à l'image)
+heroku.yml

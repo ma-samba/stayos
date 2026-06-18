@@ -302,5 +302,5 @@ export function subscribeMercure(tenantId: string, onMessage: (data: any) => voi
 ```
 VITE_API_URL=http://localhost:8080/api
 VITE_MERCURE_URL=http://localhost:9090/.well-known/mercure
-VITE_APP_DOMAIN=stayos.sn
+VITE_APP_DOMAIN=getstayos.com
 ```

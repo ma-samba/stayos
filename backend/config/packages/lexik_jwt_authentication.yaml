@@ -11,3 +11,38 @@ lexik_jwt_authentication:
             name: Authorization
 
     # Claims enrichis via JWTCreatedListener : tenant, role, plan, features, hotel
+
+# ── Override prod — Sprint 14-C.1 ─────────────────────────────────────────────
+#
+# En prod (Heroku container), les .pem n'existent PAS dans l'image
+# (backend/.dockerignore exclut config/jwt/*.pem). Les clés sont donc lues
+# depuis des Config Vars Heroku encodées base64 :
+#   - JWT_SECRET_KEY_B64 = base64 de config/jwt/private.pem
+#   - JWT_PUBLIC_KEY_B64 = base64 de config/jwt/public.pem
+# Le processeur Symfony `base64:` décode → on obtient le PEM brut commençant
+# par "-----BEGIN …". Lexik 3.x (AbstractKeyLoader::getSigningKey,
+# vendor/lexik/jwt-authentication-bundle/Services/KeyLoader/AbstractKeyLoader.php:37)
+# discrimine path vs contenu via `is_file()` : un contenu PEM n'est pas un
+# fichier → utilisé tel quel, pas d'I/O fichier nécessaire.
+#
+# Pourquoi base64 plutôt que le PEM brut en Config Var : un PEM contient
+# des newlines, mal gérées par les Config Vars Heroku. Base64 = ligne unique
+# safe.
+#
+# Choix de duplication `token_ttl` + `token_extractors` : Symfony fusionne
+# les configs `when@env` en deep-merge avec la base (Configuration tree
+# avec `addDefaultsIfNotSet`), donc en théorie elles seraient héritées.
+# On les RE-DÉCLARE ici par sécurité — coût : 7 lignes ; bénéfice : zéro
+# ambiguïté sur le comportement de merge si Lexik change un jour son
+# Configuration. Doc deploy.md §2.1 réfère ce choix.
+when@prod:
+    lexik_jwt_authentication:
+        secret_key: '%env(base64:JWT_SECRET_KEY_B64)%'
+        public_key: '%env(base64:JWT_PUBLIC_KEY_B64)%'
+        pass_phrase: '%env(JWT_PASSPHRASE)%'
+        token_ttl: 3600
+        token_extractors:
+            authorization_header:
+                enabled: true
+                prefix: Bearer
+                name: Authorization

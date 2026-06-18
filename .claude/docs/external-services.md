@@ -372,5 +372,5 @@ APP_DEBUG=0
 VITE_API_URL=https://your-app.herokuapp.com/api
 VITE_MERCURE_URL=https://your-mercure.herokuapp.com/.well-known/mercure
 VITE_UPLOADCARE_PUBLIC_KEY=your_public_key
-VITE_APP_DOMAIN=stayos.sn
+VITE_APP_DOMAIN=getstayos.com
 ```

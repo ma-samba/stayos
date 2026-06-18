@@ -121,7 +121,7 @@ when@prod:
     parameters:
         # HSTS activé en prod : la prod sert exclusivement en
         # HTTPS, on peut donc forcer le navigateur à mémoriser
-        # HTTPS pour 1 an sur stayos.sn et tous ses sous-domaines.
+        # HTTPS pour 1 an sur getstayos.com et tous ses sous-domaines.
         security.headers.hsts_enabled: true
 
         # Sprint 14-B.2.1 — Cookie Mercure en prod : HTTPS only,

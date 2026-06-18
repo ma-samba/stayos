@@ -1,0 +1,199 @@
+# ──────────────────────────────────────────────────────────────────────────────
+#  Dockerfile.prod — Image backend Symfony pour Heroku container stack
+#
+#  Sprint 14-C — Décision actée : Option B (FrankenPHP) — cf. deploy.md §5.
+#
+#  Pourquoi FrankenPHP plutôt que Nginx+FPM ou buildpack Heroku PHP :
+#    - 1 seul binaire qui parle HTTP nativement → pas de supervisor,
+#      pas de signal handling FPM/Nginx à orchestrer côté Heroku.
+#    - Maintenu par l'équipe Symfony (Kevin Dunglas), devient le
+#      standard runtime Symfony.
+#    - Image plus légère qu'un combo Nginx + PHP-FPM + Supervisor.
+#
+#  ⚠️  IMPORTANT — Worker mode FrankenPHP : DÉSACTIVÉ EN V1.
+#  StayOS est multi-tenant via `SET search_path TO hotel_{uuid}, public`
+#  (TenantMiddleware, exécuté à chaque requête). En worker mode FrankenPHP,
+#  le même process PHP traite plusieurs requêtes successives sans
+#  réinitialiser l'état global. Risque : fuite de search_path / contexte
+#  tenant entre 2 requêtes consécutives → un tenant qui voit les données
+#  d'un autre. C'est exactement le contraire de l'invariant sécurité de la
+#  plateforme. → Mode classique request/response (FRANKENPHP_CONFIG NON
+#  positionné). Ré-évaluable plus tard si l'on durcit le reset d'état
+#  inter-requêtes (RequestEvent::onKernelRequest qui clear le TenantContext
+#  + nettoyage search_path), avec tests dédiés.
+#
+#  Build context attendu : `backend/` (cf. heroku.yml situé à backend/heroku.yml).
+#  → Toutes les paths COPY ci-dessous sont relatives à `backend/`.
+#
+#  Image dev existante (docker/php/Dockerfile à la racine du repo) : INCHANGÉE.
+#  Cette image prod est strictement additive et vit dans backend/docker/php/.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Étape 1 — Vendor build (couche cache séparée pour composer install) ───────
+#
+# On sépare le vendor build en stage dédié pour :
+#  - exploiter le cache Docker quand composer.{json,lock} n'ont pas bougé
+#  - garder l'image finale propre (pas de composer ni de toolchain build)
+FROM dunglas/frankenphp:1-php8.4 AS vendor
+
+# `install-php-extensions` est embarqué dans l'image FrankenPHP officielle.
+# Il télécharge / compile l'extension demandée et active automatiquement.
+# Liste alignée sur :
+#   - les `ext-*` REQUISES par backend/composer.json (bcmath, ctype, iconv,
+#     json, pdo, redis) — si l'une manque, composer install plante au
+#     démarrage du build, garde-fou volontaire
+#   - les extensions implicitement utilisées (pdo_pgsql via Doctrine PG,
+#     intl/Symfony, gd pour les PDF Dompdf, opcache pour les perf,
+#     zip pour phpoffice/phpspreadsheet, mbstring pour Symfony,
+#     sysvsem pour Symfony Lock côté flock fallback)
+#
+# ctype, iconv et json sont built-in dans PHP 8.4 (rien à installer).
+RUN install-php-extensions \
+        pdo_pgsql \
+        redis \
+        bcmath \
+        intl \
+        gd \
+        opcache \
+        zip \
+        mbstring \
+        sysvsem
+
+# Composer depuis l'image officielle (binaire statique, pas de PHP supplémentaire)
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+
+WORKDIR /app
+
+# ── Couche 1 : composer.{json,lock} seuls → cache vendor invalide
+#                uniquement si l'un des deux change.
+COPY composer.json composer.lock symfony.lock* ./
+
+# `--no-scripts` : on évite l'exécution des scripts auto-scripts (cache:clear,
+# assets:install) tant que le code source n'est pas copié.
+# `--no-autoloader` : on génère l'autoload optimisé APRÈS le COPY du code.
+# `--no-dev` : exclut phpunit, web-profiler, debug-bundle, faker, maker, etc.
+RUN composer install \
+        --no-dev \
+        --no-scripts \
+        --no-autoloader \
+        --no-interaction \
+        --prefer-dist \
+    && composer clear-cache
+
+
+# ── Étape 2 — Image runtime finale ────────────────────────────────────────────
+FROM dunglas/frankenphp:1-php8.4 AS runtime
+
+# Extensions runtime (identiques à l'étape vendor — FrankenPHP runtime
+# doit avoir le même set d'extensions actives sinon les imports PHP cassent).
+RUN install-php-extensions \
+        pdo_pgsql \
+        redis \
+        bcmath \
+        intl \
+        gd \
+        opcache \
+        zip \
+        mbstring \
+        sysvsem
+
+# Composer reste utile pour la régénération de l'autoload optimisé à
+# l'étape suivante (dump-autoload). On le récupère ici aussi pour éviter
+# une dépendance sur l'image vendor au runtime.
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+
+# Variables d'env prod par défaut. Heroku peut les overrider via Config Vars,
+# mais on pose APP_ENV=prod / APP_DEBUG=0 comme garde-fou.
+ENV APP_ENV=prod \
+    APP_DEBUG=0
+
+WORKDIR /app
+
+# ── Vendor pré-construit
+COPY --from=vendor /app/vendor ./vendor
+
+# ── Code applicatif
+# backend/.dockerignore exclut : tests/, var/cache/, .env.local,
+# config/jwt/*.pem, etc. (Le contexte de build étant backend/, c'est
+# bien CE .dockerignore qui s'applique — pas un éventuel .dockerignore
+# au repo root.)
+COPY . .
+
+# Régénère un autoload optimisé (Symfony peut lire les attributes de
+# tous les fichiers maintenant copiés).
+RUN composer dump-autoload --optimize --classmap-authoritative --no-dev
+
+# Pré-warm du cache Symfony en prod. Évite que le 1er requesteur paie la
+# facture du warmup au cold-start du dyno.
+#
+# ⚠️  Pourquoi des stubs JWT_*_B64 ici (Sprint 14-C.1) :
+# En prod, when@prod (config/packages/lexik_jwt_authentication.yaml) lit
+# `%env(base64:JWT_SECRET_KEY_B64)%` et `%env(base64:JWT_PUBLIC_KEY_B64)%`.
+# Vérif faite : Lexik 3.x injecte ces valeurs comme constructor args
+# LAZILY (cf. LexikJWTAuthenticationExtension.php:69-70 → `replaceArgument`),
+# donc le service KeyLoader n'est instancié qu'au runtime — cache:warmup
+# en prod NE FETCH PAS le service JWT et n'a donc PAS BESOIN des vraies
+# clés. MAIS pour éliminer tout risque qu'une future version de Lexik
+# ou un compiler pass déclenche l'évaluation des env au build, on injecte
+# des stubs base64 inline `export` SCOPÉS au shell du RUN courant —
+# ils ne PERSISTENT PAS dans l'image finale (Docker démarre un nouveau
+# shell par RUN). Les vraies clés sont injectées au runtime via Heroku
+# Config Vars qui override tout reliquat d'env.
+#
+# Stubs décodés = "placeholder\n" : volontairement invalides comme PEM,
+# une éventuelle utilisation accidentelle au boot lèverait une erreur
+# OpenSSL explicite plutôt qu'un comportement silencieux.
+RUN export JWT_SECRET_KEY_B64=cGxhY2Vob2xkZXIK \
+           JWT_PUBLIC_KEY_B64=cGxhY2Vob2xkZXIK \
+           JWT_PASSPHRASE=build-only-stub \
+    && php bin/console cache:clear --env=prod --no-debug \
+    && php bin/console cache:warmup --env=prod --no-debug
+
+# ── Caddyfile : routing minimal, pas de TLS, pas de duplication de headers.
+#    cf. backend/docker/php/Caddyfile (commentaires détaillés).
+COPY docker/php/Caddyfile /etc/caddy/Caddyfile
+
+# ── Clés JWT — Sprint 14-C.1 — STRATÉGIE FINALISÉE
+#
+# Décision : option (b) base64 via Config Vars + override `when@prod` de
+# `config/packages/lexik_jwt_authentication.yaml`.
+#
+# Comment ça marche :
+#   - Les .pem ne sont JAMAIS dans l'image (.dockerignore exclut
+#     config/jwt/*.pem). Le COPY . . ci-dessus copie tout SAUF eux.
+#   - En prod, `when@prod` du config Lexik lit
+#     `%env(base64:JWT_SECRET_KEY_B64)%` et `%env(base64:JWT_PUBLIC_KEY_B64)%`.
+#   - Le processeur Symfony `base64:` décode → Lexik 3.x reçoit le PEM
+#     brut commençant par "-----BEGIN …" et le détecte via `is_file()`
+#     comme contenu (pas un chemin) ; aucune I/O fichier nécessaire.
+#   - Les 3 Config Vars à poser sur Heroku (cf. deploy.md §2.1) :
+#       JWT_SECRET_KEY_B64 = base64 -w0 config/jwt/private.pem
+#       JWT_PUBLIC_KEY_B64 = base64 -w0 config/jwt/public.pem
+#       JWT_PASSPHRASE     = passphrase prod (≠ passphrase dev)
+#
+# Ce que le Dockerfile.prod NE FAIT PAS volontairement :
+#   - Embarquer les clés prod (option (a) build secret BuildKit) —
+#     `heroku container:push` ne supporte pas BuildKit nativement et
+#     stocker les .pem prod à côté de `docker build` est un risque.
+#   - Écrire les .pem au boot (option (c) script entrypoint) — fuite
+#     possible via `heroku run bash` ou inspection mémoire du dyno.
+
+# Permissions : FrankenPHP tourne en root par défaut dans l'image officielle
+# (nécessaire pour bind sur les ports < 1024 hors Heroku). Sur Heroku, $PORT
+# est > 1024 donc on pourrait downgrader, mais l'image upstream gère déjà
+# correctement le déprivilégiage interne (Caddy fork en user non-root après
+# bind). On reste sur le comportement par défaut de l'image upstream.
+
+# Exposition pour `docker run -p` local — Heroku ignore EXPOSE.
+EXPOSE 80
+
+# Pas de CMD ni d'ENV SERVER_NAME ici : la commande d'exécution est
+# définie par l'environnement de run.
+#   - Sur Heroku (prod) : `backend/heroku.yml` → `run.web.command` lance
+#     `sh -c 'SERVER_NAME=":$PORT" frankenphp run -c /etc/caddy/Caddyfile'`.
+#     Le `sh -c` est INDISPENSABLE car les Config Vars Heroku sont des
+#     strings statiques et ne peuvent pas dériver de $PORT (injecté au
+#     runtime par la plateforme).
+#   - En local (validation image) : l'opérateur passe
+#     `-e SERVER_NAME=":80"` à `docker run` et `--entrypoint frankenphp`
+#     + `run -c /etc/caddy/Caddyfile` en arguments.

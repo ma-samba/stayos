@@ -16,7 +16,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * Résout le tenant et configure le search_path PostgreSQL.
  *
  * Priorité 1 : header X-Tenant-Slug (dev local, frontend Vue.js)
- * Priorité 2 : subdomain (production : savana.stayos.sn → slug "savana")
+ * Priorité 2 : subdomain (production : savana.getstayos.com → slug "savana")
  *
  * → Tenant chargé depuis public.tenants
  * → SET search_path TO hotel_{uuid}, public
@@ -80,7 +80,7 @@ class TenantMiddleware implements EventSubscriberInterface
         }
 
         // Priorité 1 : header X-Tenant-Slug (dev local, frontend Vue.js)
-        // Priorité 2 : subdomain (production : savana.stayos.sn)
+        // Priorité 2 : subdomain (production : savana.getstayos.com)
         $slug = $request->headers->get('X-Tenant-Slug');
 
         if (!$slug) {

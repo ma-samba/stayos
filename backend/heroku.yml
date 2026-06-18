@@ -1,0 +1,119 @@
+# ──────────────────────────────────────────────────────────────────────────────
+#  heroku.yml — App Heroku container stack `stayos-api`
+#
+#  Sprint 14-C — Cf. .claude/docs/deploy.md §5 et §11 pour le contexte.
+#
+#  Emplacement & stratégie de push :
+#    Le monorepo StayOS contient `backend/`, `frontend/`, docs, etc. Heroku
+#    exige que `heroku.yml` soit à la racine du repo POUSSÉ. Le backend
+#    étant en sous-dossier, deux choix possibles :
+#
+#      (1) Subtree push — RETENU ICI.
+#          → `heroku.yml` vit dans `backend/`.
+#          → Build context Docker = `backend/`.
+#          → Le `.dockerignore` à côté (`backend/.dockerignore`) s'applique
+#            naturellement, sans inclure le frontend/ ni les docs.
+#          → Push :
+#              git subtree push --prefix=backend heroku-api main
+#            (Heroku Dashboard "Manual deploy" ne supporte pas
+#            nativement un sous-dossier comme racine d'app pour le
+#            container stack ; le subtree push CLI reste la référence.)
+#
+#      (2) Heroku.yml à la racine du repo — alternative.
+#          → Demande de préfixer toutes les paths Docker (composer.json,
+#            etc.) par `backend/`, ce qui pollue le Dockerfile et
+#            inclut le frontend/ dans le contexte Docker (cache invalidé
+#            au moindre changement frontend).
+#          → NON RETENU.
+#
+#    Si l'on a besoin un jour de déployer l'app sans subtree, il suffit
+#    de déplacer ce fichier à la racine et d'ajuster les paths Docker —
+#    aucune logique applicative n'en dépend.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Add-ons Heroku créés/attachés en parallèle (release phase y accède
+#    via DATABASE_URL et REDIS_URL injectés automatiquement par les
+#    add-ons. Cf. deploy.md §3.1 et §3.2 pour les pièges).
+#
+#    Volontairement non déclarés ici pour rester idempotent : les
+#    add-ons sont posés une seule fois via la CLI et survivent aux
+#    redéploiements, alors qu'une déclaration ici pourrait tenter
+#    de provisionner un nouvel add-on à chaque push.
+
+setup:
+    # Pas d'add-ons provisionnés automatiquement (cf. note ci-dessus).
+    # On déclare seulement les Config Vars qui DOIVENT exister au build.
+    # En réalité ces variables sont posées manuellement via `heroku config:set`
+    # (cf. checklist §11 deploy.md) — la section `setup.config` n'est pas
+    # supportée par container stack pour les valeurs runtime, donc on la
+    # laisse vide.
+    addons: []
+
+build:
+    docker:
+        # Process type `web` : FrankenPHP qui sert l'API REST.
+        web: docker/php/Dockerfile.prod
+        # Process type `worker` : MÊME image que web, mais lancée avec une
+        # commande différente (cf. `run.worker` ci-dessous). Re-utiliser la
+        # même image économise le build time et garantit que web et worker
+        # tournent avec le même code + les mêmes dépendances. Heroku
+        # supporte une seule image pour plusieurs process types via cette
+        # entrée dupliquée.
+        worker: docker/php/Dockerfile.prod
+
+# ── Release phase — exécutée à chaque déploiement AVANT de basculer le
+#    trafic sur la nouvelle release. Si la commande échoue, le déploiement
+#    est rollback automatiquement (Heroku garde la release N-1 active).
+#
+#    Pourquoi 2 niveaux de migration :
+#      - StayOS isole chaque hôtel dans un schema PostgreSQL dédié
+#        (`hotel_{uuid}`). Doctrine ne connaît que le schema `public`.
+#      - `doctrine:migrations:migrate` applique les migrations globales
+#        sur `public` (Tenant, Plan, Subscription, SaasInvoice…).
+#      - `stayos:tenant:migrate` itère sur TOUS les schemas hotel_{uuid}
+#        existants et applique les migrations tenant (`migrations/Tenant/`)
+#        enregistrées dans `TenantMigrationRegistry`. C'est ce 2e niveau
+#        qui propage les changements de schéma métier (nouvelle colonne
+#        Reservation, contrainte CHECK enum, etc.) à TOUS les hôtels.
+#      - Oublier l'étape 2 → les hôtels existants pointent vers un
+#        schéma obsolète → erreurs Doctrine au premier appel API.
+#
+#    `cache:clear --env=prod` final : le cache compilé est déjà chauffé au
+#    build (cf. Dockerfile.prod), mais le code lit `var/cache/prod/` qui
+#    dépend de l'environnement de release. On le rejoue pour absorber
+#    d'éventuelles différences entre l'env de build et l'env de release.
+release:
+    image: web
+    command:
+        - php bin/console doctrine:migrations:migrate --no-interaction
+        - php bin/console stayos:tenant:migrate
+        - php bin/console cache:clear --env=prod --no-debug
+
+# ── Run phase — déclare les process types et la commande de chaque dyno.
+#
+# `web` : FrankenPHP doit bind sur $PORT (injecté au runtime par Heroku)
+#   en moins de ~60s. SERVER_NAME est posé INLINE dans la commande
+#   ci-dessous (`SERVER_NAME=":$PORT" frankenphp run …`) parce que les
+#   Config Vars Heroku sont des strings statiques et ne peuvent pas
+#   dériver de $PORT — d'où le `sh -c` qui réalise l'expansion à
+#   l'exécution. Le Caddyfile lit ensuite la variable via `{$SERVER_NAME}`.
+#
+# `worker` : un seul dyno Messenger.
+#   - `messenger:consume async` → consomme la queue Redis configurée par
+#     MESSENGER_TRANSPORT_DSN (cf. deploy.md §3.2).
+#   - `--time-limit=3600` → le worker s'arrête de lui-même après 1h. Combiné
+#     au cycling Heroku (~24h), évite les fuites mémoire long-running.
+#   - `--memory-limit=256M` → garde-fou supplémentaire en cas de fuite
+#     dans un handler. Le dyno Hobby a 512M ; on en garde la moitié.
+#   - `-vv` → logs verbeux captés par log drain Papertrail.
+#   - Heroku redémarre automatiquement le dyno worker dès qu'il exit
+#     (--time-limit ou --memory-limit), pas besoin d'un script de boucle.
+run:
+    web:
+        command:
+            - sh -c 'SERVER_NAME=":$PORT" frankenphp run -c /etc/caddy/Caddyfile'
+        image: web
+    worker:
+        command:
+            - php bin/console messenger:consume async --time-limit=3600 --memory-limit=256M -vv
+        image: worker

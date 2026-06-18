@@ -74,7 +74,7 @@ async function submit(): Promise<void> {
               v-model="email"
               class="input input-with-icon"
               type="email"
-              placeholder="admin@stayos.sn"
+              placeholder="admin@getstayos.com"
               required
               autocomplete="email"
             />

@@ -54,7 +54,7 @@ country (default:'SN'), currency (default:'XOF'),
 settings (JSON), createdAt, updatedAt
 
 // TenantStatus : TRIAL | ACTIVE | SUSPENDED | CHURNED
-// slug → identifie le tenant via le subdomain : {slug}.stayos.sn
+// slug → identifie le tenant via le subdomain : {slug}.getstayos.com
 ```
 
 ### Plan

@@ -1,0 +1,37 @@
+# ──────────────────────────────────────────────────────────────────────────────
+#  heroku.yml — App Heroku container stack `stayos-mercure`
+#
+#  Sprint 14-C — App SÉPARÉE de `stayos-api`.
+#
+#  Push : subtree push depuis ops/mercure/ —
+#    git subtree push --prefix=ops/mercure heroku-mercure main
+#
+#  Cf. ops/mercure/README.md pour le pas-à-pas complet.
+# ──────────────────────────────────────────────────────────────────────────────
+
+setup:
+    addons: []
+
+build:
+    docker:
+        web: Dockerfile
+
+# Pas de release phase : Mercure est stateless (pas de migration, pas de
+# cache à warmer).
+
+run:
+    web:
+        # `SERVER_NAME=":$PORT"` : on substitue $PORT (injecté par Heroku
+        # au runtime) en variable d'env consommée par le Caddyfile interne
+        # de l'image dunglas/mercure (`{$SERVER_NAME}` lit cette variable).
+        #
+        # Heroku Config Vars ne permettent pas de poser SERVER_NAME=":$PORT"
+        # statiquement (les Config Vars sont des strings, pas évaluées par
+        # le shell) — d'où la wrappe `sh -c` ici.
+        #
+        # `exec` : remplace le shell par le process Caddy pour que les
+        # signaux Heroku (SIGTERM au cycling) arrivent directement au hub
+        # et qu'il puisse fermer proprement les EventSource.
+        command:
+            - sh -c 'SERVER_NAME=":$PORT" exec caddy run --config /etc/caddy/Caddyfile.prod --adapter caddyfile'
+        image: web

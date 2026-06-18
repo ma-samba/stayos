@@ -1,0 +1,65 @@
+# ──────────────────────────────────────────────────────────────────────────────
+#  Caddyfile — Config FrankenPHP pour le backend en PROD (Heroku container)
+#
+#  Sprint 14-C — Référencé depuis backend/docker/php/Dockerfile.prod.
+#
+#  Conception : le Caddyfile reste MINIMAL.
+#    1. Le TLS est terminé par Heroku en façade → on désactive auto_https
+#       (sinon FrankenPHP tenterait Let's Encrypt et échouerait).
+#    2. Les security headers (X-Frame-Options, CSP, Referrer-Policy,
+#       Permissions-Policy, HSTS conditionnel) sont posés par
+#       `App\Shared\Http\EventSubscriber\SecurityHeadersSubscriber`.
+#       Les RE-poser ici dupliquerait les headers ou les contradirait →
+#       on s'en abstient explicitement.
+#    3. Routing : tout le trafic est servi par PHP (Symfony front
+#       controller `public/index.php`). Pas d'asset statique en façade
+#       Caddy : les rares assets (DataFixtures placeholders, etc.) sont
+#       servis via Symfony / CDN externes.
+#
+#  SERVER_NAME est posé INLINE dans la commande de run (cf.
+#  `backend/heroku.yml` → `run.web.command` :
+#  `sh -c 'SERVER_NAME=":$PORT" frankenphp run …'`). Le wrapping `sh -c`
+#  est indispensable car les Config Vars Heroku sont des strings
+#  statiques et ne peuvent pas dériver de $PORT (injecté au runtime).
+#  Le bloc serveur ci-dessous lit ensuite la variable via `{$SERVER_NAME}`.
+# ──────────────────────────────────────────────────────────────────────────────
+
+{
+    # Désactive l'obtention automatique de certificats TLS. Heroku termine
+    # TLS sur son routeur, FrankenPHP ne parle qu'HTTP en interne.
+    auto_https off
+
+    # Désactive le serveur d'admin Caddy (port 2019) — surface d'attaque
+    # inutile sur un dyno Heroku.
+    admin off
+
+    # Logs structurés JSON vers stderr → captés par Heroku log drain
+    # (Papertrail dans la prod cible).
+    log {
+        output stderr
+        format json
+        # Sentry remonte les 5xx + crashes côté applicatif. On garde le
+        # niveau Caddy à INFO ici pour ne pas bruiter sur les 404 normales.
+        level INFO
+    }
+
+    # Active explicitement FrankenPHP (mode classique request/response,
+    # PAS de worker mode — cf. note sécurité dans le Dockerfile).
+    frankenphp
+}
+
+# Bloc serveur : écoute sur le port défini par SERVER_NAME (= :$PORT).
+{$SERVER_NAME} {
+    # Racine documentaire Symfony.
+    root * /app/public
+
+    # Compression à la volée (gzip + zstd) pour les JSON API. Sans incidence
+    # sur les binaires (PDF de facture, etc.).
+    encode zstd gzip
+
+    # ── Routing PHP via FrankenPHP
+    # `php_server` détecte automatiquement le front controller, gère les
+    # rewrites Symfony (toute URL → public/index.php) et fait la PATH_INFO
+    # splitting attendue par Symfony.
+    php_server
+}

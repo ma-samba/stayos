@@ -218,7 +218,7 @@ function gotoDetail(): void {
             {{ fieldErrors.slug }}
           </div>
           <div v-else class="ct-hint">
-            URL finale : <span class="t-mono">https://{{ slug || '...' }}.stayos.sn</span>
+            URL finale : <span class="t-mono">https://{{ slug || '...' }}.getstayos.com</span>
           </div>
         </div>
 
