@@ -1,8 +1,10 @@
 # ──────────────────────────────────────────────────────────────────────────────
 #  .dockerignore — Backend (build context = backend/ pour Dockerfile.prod)
 #
-#  Sprint 14-C. S'applique au build de `backend/docker/php/Dockerfile.prod`
-#  exécuté par Heroku container stack avec contexte = backend/.
+#  Sprint 14-C. S'applique au build de `backend/Dockerfile.prod` exécuté
+#  par Heroku container stack avec contexte = backend/ (Heroku fige le
+#  contexte au dossier qui contient le Dockerfile — d'où l'emplacement
+#  à la racine de backend/, cf. commentaire en tête du Dockerfile).
 #
 #  Objectifs :
 #   1. AUCUN secret dans l'image (clés JWT, .env.local, etc.)
@@ -58,12 +60,13 @@ phpstan.neon
 .DS_Store
 Thumbs.db
 
-# ── Docker dev (le Dockerfile.prod vit dans docker/php/ ; le reste de
-#    docker/ contient des configs Nginx/Mailpit/etc. uniquement utiles
-#    en dev — on ne les met pas dans l'image prod).
-#    On garde explicitement Dockerfile.prod et Caddyfile via négation.
+# ── Docker dev (le contenu de docker/ est principalement de la config
+#    Nginx/Mailpit/etc. uniquement utile en dev — on ne le met pas dans
+#    l'image prod). On garde explicitement le Caddyfile via négation,
+#    référencé par `COPY docker/php/Caddyfile …` dans Dockerfile.prod.
+#    (Le Dockerfile.prod lui-même vit désormais à backend/Dockerfile.prod,
+#    donc plus besoin de l'exclure de la règle `docker/`.)
 docker/
-!docker/php/Dockerfile.prod
 !docker/php/Caddyfile
 
 # ── Documentation et CI

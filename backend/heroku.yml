@@ -49,17 +49,40 @@ setup:
     # laisse vide.
     addons: []
 
+# ── Emplacement du Dockerfile : à la RACINE de backend/ (et pas
+#    dans backend/docker/php/) — contrainte DURE de Heroku.
+#
+#    Heroku container stack fige le BUILD CONTEXT Docker au dossier
+#    qui CONTIENT le Dockerfile, sans clé `context` configurable
+#    (cf. devcenter.heroku.com/articles/build-docker-images-heroku-yml :
+#    "The Docker build context is always set to the directory
+#    containing the Dockerfile and can't be configured independently").
+#
+#    Or composer.json, composer.lock, src/, config/, public/, etc.
+#    vivent à la racine backend/. Donc le Dockerfile DOIT être à
+#    backend/Dockerfile.prod pour que `COPY composer.json …` trouve
+#    le fichier dans le contexte.
+#
+#    Le Caddyfile reste rangé dans backend/docker/php/Caddyfile et
+#    est copié via `COPY docker/php/Caddyfile …` dans le Dockerfile
+#    (path relatif au contexte = backend/, donc valide).
+#
+#    Tentative précédente écartée : forme objet `web: { dockerfile:
+#    …, context: . }` — `context` n'est pas une clé supportée par
+#    heroku.yml (vérifié sur la doc officielle au push qui échouait
+#    avec "COPY failed: file not found in build context: stat
+#    composer.json").
 build:
     docker:
         # Process type `web` : FrankenPHP qui sert l'API REST.
-        web: docker/php/Dockerfile.prod
+        web: Dockerfile.prod
         # Process type `worker` : MÊME image que web, mais lancée avec une
         # commande différente (cf. `run.worker` ci-dessous). Re-utiliser la
         # même image économise le build time et garantit que web et worker
         # tournent avec le même code + les mêmes dépendances. Heroku
         # supporte une seule image pour plusieurs process types via cette
         # entrée dupliquée.
-        worker: docker/php/Dockerfile.prod
+        worker: Dockerfile.prod
 
 # ── Release phase — exécutée à chaque déploiement AVANT de basculer le
 #    trafic sur la nouvelle release. Si la commande échoue, le déploiement

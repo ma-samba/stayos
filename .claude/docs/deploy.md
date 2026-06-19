@@ -373,7 +373,7 @@ heroku/php) :
 
 | Fichier | Rôle |
 |---|---|
-| `backend/docker/php/Dockerfile.prod` | Image FrankenPHP multi-stage (vendor + runtime) avec extensions `pdo_pgsql`, `redis`, `bcmath`, `intl`, `gd`, `opcache`, `zip`, `mbstring`, `sysvsem` via `install-php-extensions`. Worker mode FrankenPHP **désactivé** (cf. ci-dessous). |
+| `backend/Dockerfile.prod` | Image FrankenPHP multi-stage (vendor + runtime) avec extensions `pdo_pgsql`, `redis`, `bcmath`, `intl`, `gd`, `opcache`, `zip`, `mbstring`, `sysvsem` via `install-php-extensions`. Worker mode FrankenPHP **désactivé** (cf. ci-dessous). ⚠️ **Emplacement à la racine de backend/** (et pas dans `backend/docker/php/`) — contrainte Heroku : le build context est figé au dossier qui contient le Dockerfile, `context:` n'est pas une clé supportée par heroku.yml. Vérifié sur le push initial qui échouait à `COPY composer.json` parce que le contexte était `docker/php/` (et donc ne contenait pas `composer.json`). Le Caddyfile reste rangé dans `backend/docker/php/Caddyfile`, copié via path relatif au contexte. |
 | `backend/docker/php/Caddyfile` | Routing minimal : `auto_https off`, `admin off`, `php_server` vers `/app/public`. **Ne re-pose AUCUN security header** — `SecurityHeadersSubscriber` côté Symfony s'en charge déjà, dupliquer créerait des contradictions. |
 | `backend/heroku.yml` | Heroku container stack : build `web` + `worker` (même image, commandes différentes), release phase = `doctrine:migrations:migrate` + `stayos:tenant:migrate` + `cache:clear --env=prod`. |
 | `backend/.dockerignore` | Exclut `vendor/`, `var/cache/`, `tests/`, `.env.local`, `config/jwt/*.pem`, `.git/`, etc. **Aucun secret possible dans l'image.** |
@@ -706,7 +706,8 @@ sans casser une étape ultérieure.
   gestionnaire — voir le mode opératoire §2.1 mis à jour
 - [x] §5 — Option image backend tranchée : **B (FrankenPHP)**,
   fichiers produits (Sprint 14-C étape 2) :
-  `backend/docker/php/Dockerfile.prod`, `backend/docker/php/Caddyfile`,
+  `backend/Dockerfile.prod` (racine — contrainte Heroku, cf. §5),
+  `backend/docker/php/Caddyfile`,
   `backend/heroku.yml`, `backend/.dockerignore`,
   `ops/mercure/Dockerfile`, `ops/mercure/heroku.yml`,
   `ops/mercure/README.md`.

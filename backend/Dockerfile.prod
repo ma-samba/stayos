@@ -25,8 +25,17 @@
 #  Build context attendu : `backend/` (cf. heroku.yml situé à backend/heroku.yml).
 #  → Toutes les paths COPY ci-dessous sont relatives à `backend/`.
 #
+#  ⚠️ Emplacement : `backend/Dockerfile.prod` (racine de backend/) — PAS
+#  dans backend/docker/php/. Contrainte Heroku : le build context est
+#  toujours le dossier QUI CONTIENT le Dockerfile, et `context:` n'est
+#  pas une clé supportée par heroku.yml. Mettre ce fichier ailleurs que
+#  la racine de backend/ exclurait composer.json du contexte → COPY
+#  composer.json échoue (vu sur push initial du Sprint 14-C). Le
+#  Caddyfile reste dans docker/php/Caddyfile, copié via path relatif au
+#  contexte.
+#
 #  Image dev existante (docker/php/Dockerfile à la racine du repo) : INCHANGÉE.
-#  Cette image prod est strictement additive et vit dans backend/docker/php/.
+#  Cette image prod est strictement additive.
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Étape 1 — Vendor build (couche cache séparée pour composer install) ───────
