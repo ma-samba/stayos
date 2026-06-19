@@ -6,7 +6,7 @@
   "description": "StayOS PMS — Interface Vue.js 3",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc && vite build",
+    "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .vue,.js,.ts --fix",
     "type-check": "vue-tsc --noEmit"
@@ -39,6 +39,6 @@
     "typescript": "^5.5.0",
     "vite": "^5.4.0",
     "vitest": "^2.0.0",
-    "vue-tsc": "^2.1.0"
+    "vue-tsc": "^3.3.5"
   }
 }
