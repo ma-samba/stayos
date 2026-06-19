@@ -68,13 +68,32 @@ services:
         App\Hotel\Billing\Domain\Gateway\PaymentGatewayInterface:
             tags: ['app.payment_gateway']
 
-    # Service Redis injecté dans HealthController
+    # Service Redis brut injecté dans HealthController.
+    #
+    # Construction déléguée à App\Shared\Redis\RedisConnectionFactory
+    # car la chaîne `calls: connect(host, port)` ne couvre QUE le cas
+    # dev (REDIS_HOST=redis + REDIS_PORT=6379). En prod (Heroku Data
+    # for Redis), on a uniquement REDIS_URL au format
+    # `rediss://:PASSWORD@HOST:PORT` (TLS + auth) — la factory parse
+    # cette URL et applique tls:// + auth().
+    #
+    # `default::REDIS_*` = chaîne vide si la var n'est pas posée
+    # (en prod, REDIS_HOST/REDIS_PORT n'existent pas ; en dev,
+    # REDIS_URL est posé en plus mais la factory privilégie REDIS_URL
+    # de toute façon).
+    #
+    # ⚠️ Ne PAS toucher au framework cache (kpi.cache pool) ni à
+    # Messenger : ils consomment REDIS_URL via leurs propres parseurs
+    # Symfony qui gèrent déjà TLS et auth correctement.
+    App\Shared\Redis\RedisConnectionFactory:
+        arguments:
+            $redisUrl:  '%env(default::REDIS_URL)%'
+            $redisHost: '%env(default::REDIS_HOST)%'
+            $redisPort: '%env(default::REDIS_PORT)%'
+
     Redis:
         class: Redis
-        calls:
-            - connect:
-                - '%env(resolve:REDIS_HOST)%'
-                - '%env(int:REDIS_PORT)%'
+        factory: ['@App\Shared\Redis\RedisConnectionFactory', 'create']
 
     # Sprint 14-B.1.1 — Subscriber des headers HTTP de sécurité.
     App\Shared\Http\EventSubscriber\SecurityHeadersSubscriber:
