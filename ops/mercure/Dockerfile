@@ -30,9 +30,11 @@ FROM dunglas/mercure:v0.16
 # Pas de COPY, pas de RUN — toute la config est passée en env au runtime
 # (cf. heroku.yml + Config Vars).
 #
-# Note : l'entrypoint upstream lance `caddy run --config /etc/caddy/Caddyfile.prod
-# --adapter caddyfile`. Le Caddyfile.prod embarqué lit {$SERVER_NAME},
-# {$MERCURE_PUBLISHER_JWT_KEY}, {$MERCURE_SUBSCRIBER_JWT_KEY} et inclut
-# MERCURE_EXTRA_DIRECTIVES via globule.
+# Note : l'image dunglas/mercure (≥ v0.16) copie son Caddyfile prod à
+# `/etc/caddy/Caddyfile` (SANS suffixe .prod ; le fichier dev vit à
+# `/etc/caddy/dev.Caddyfile`). C'est ce chemin que `ops/mercure/heroku.yml`
+# passe à `caddy run --config`. Le Caddyfile lit `{$SERVER_NAME}`,
+# `{$MERCURE_PUBLISHER_JWT_KEY}`, `{$MERCURE_SUBSCRIBER_JWT_KEY}` et inclut
+# `MERCURE_EXTRA_DIRECTIVES` via globule.
 
 EXPOSE 80

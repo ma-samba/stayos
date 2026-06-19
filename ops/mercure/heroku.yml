@@ -21,17 +21,32 @@ build:
 
 run:
     web:
-        # `SERVER_NAME=":$PORT"` : on substitue $PORT (injecté par Heroku
-        # au runtime) en variable d'env consommée par le Caddyfile interne
-        # de l'image dunglas/mercure (`{$SERVER_NAME}` lit cette variable).
+        # `SERVER_NAME=":$PORT"` substitue $PORT (injecté par Heroku au
+        # runtime) en variable d'env. Le Caddyfile prod embarqué dans
+        # l'image dunglas/mercure lit `{$SERVER_NAME}` pour configurer
+        # son écoute : poser un port HTTP nu (`:$PORT`) au lieu d'un
+        # hostname désactive l'auto-HTTPS Caddy (utile ici car Heroku
+        # termine TLS en façade et n'expose que de l'HTTP au dyno).
         #
         # Heroku Config Vars ne permettent pas de poser SERVER_NAME=":$PORT"
         # statiquement (les Config Vars sont des strings, pas évaluées par
         # le shell) — d'où la wrappe `sh -c` ici.
         #
+        # Chemin du Caddyfile : `/etc/caddy/Caddyfile` (SANS suffixe
+        # `.prod`). C'est le chemin RÉEL où l'image dunglas/mercure (≥
+        # v0.16) copie son Caddyfile de prod ; le fichier de dev est sur
+        # `/etc/caddy/dev.Caddyfile`. Référencer un `Caddyfile.prod`
+        # inexistant → crash `no such file or directory` en boucle dyno.
+        #
+        # Le Caddyfile prod par défaut gère déjà le publisher/subscriber
+        # Mercure via les env `MERCURE_PUBLISHER_JWT_KEY` /
+        # `MERCURE_SUBSCRIBER_JWT_KEY` et la directive
+        # `MERCURE_EXTRA_DIRECTIVES` — voir Config Vars dans
+        # ops/mercure/README.md.
+        #
         # `exec` : remplace le shell par le process Caddy pour que les
         # signaux Heroku (SIGTERM au cycling) arrivent directement au hub
         # et qu'il puisse fermer proprement les EventSource.
         command:
-            - sh -c 'SERVER_NAME=":$PORT" exec caddy run --config /etc/caddy/Caddyfile.prod --adapter caddyfile'
+            - sh -c 'SERVER_NAME=":$PORT" exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile'
         image: web
